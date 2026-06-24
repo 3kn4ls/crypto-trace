@@ -1,0 +1,48 @@
+:root {
+  --bg: #0f172a;
+  --panel: #1e293b;
+  --accent: #38bdf8;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --good: #4ade80;
+  --bad: #f87171;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+a { color: var(--accent); text-decoration: none; }
+.layout { display: flex; min-height: 100vh; }
+.sidebar {
+  width: 220px; background: var(--panel); padding: 20px 16px; flex-shrink: 0;
+}
+.sidebar h1 { font-size: 18px; color: var(--accent); margin: 0 0 24px; }
+.sidebar nav a {
+  display: block; padding: 10px 12px; border-radius: 8px; color: var(--text); margin-bottom: 4px;
+}
+.sidebar nav a.active, .sidebar nav a:hover { background: rgba(56,189,248,0.15); }
+.content { flex: 1; padding: 28px 36px; overflow: auto; }
+.card { background: var(--panel); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+.grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.stat { font-size: 28px; font-weight: 700; }
+.stat.good { color: var(--good); } .stat.bad { color: var(--bad); }
+.muted { color: var(--muted); font-size: 13px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid rgba(148,163,184,0.15); }
+th { color: var(--muted); font-weight: 600; }
+button {
+  background: var(--accent); color: #04293a; border: 0; border-radius: 8px;
+  padding: 9px 16px; font-weight: 600; cursor: pointer;
+}
+button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+input, select {
+  background: #0b1220; color: var(--text); border: 1px solid #334155;
+  border-radius: 8px; padding: 9px 12px; margin: 4px 8px 4px 0;
+}
+.badge { padding: 2px 8px; border-radius: 999px; font-size: 12px; }
+.badge.open { background: rgba(56,189,248,0.2); color: var(--accent); }
+.badge.closed { background: rgba(74,222,128,0.2); color: var(--good); }
+.error { color: var(--bad); }

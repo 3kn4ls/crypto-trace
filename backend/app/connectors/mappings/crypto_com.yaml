@@ -1,0 +1,38 @@
+# Crypto.com App export mapping (PROVISIONAL).
+# Adjust column names and type_map to your real export; no code change needed.
+sheet: 0
+header_row: 1
+decimal_sep: "."
+date_formats:
+  - "%Y-%m-%d %H:%M:%S"
+  - "%Y-%m-%dT%H:%M:%S"
+
+columns:
+  timestamp: "Timestamp (UTC)"
+  type: "Transaction Kind"
+  currency: "Currency"          # primary asset moved
+  amount: "Amount"
+  to_currency: "To Currency"    # destination asset (exchanges)
+  to_amount: "To Amount"
+  native_amount: "Native Amount"  # value in the user's fiat (EUR for ES)
+  external_id: "Transaction Hash"
+
+# Crypto.com "Transaction Kind" -> canonical TransactionType.
+type_map:
+  viban_purchase: BUY
+  crypto_purchase: BUY
+  recurring_buy_order: BUY
+  crypto_viban_exchange: SELL
+  viban_card_top_up: SELL
+  crypto_exchange: SWAP
+  dust_conversion_credited: SWAP
+  crypto_withdrawal: WITHDRAWAL
+  crypto_deposit: DEPOSIT
+  crypto_earn_interest_paid: STAKING_REWARD
+  crypto_earn_reward: STAKING_REWARD
+  mco_stake_reward: STAKING_REWARD
+  supercharger_reward_to_app_credited: STAKING_REWARD
+  rewards_platform_deposit_credited: STAKING_REWARD
+  referral_card_cashback: REFERRAL
+  referral_bonus: REFERRAL
+  airdrop_to_exchange_transfer: AIRDROP

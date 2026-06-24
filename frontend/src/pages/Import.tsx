@@ -1,0 +1,94 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { api } from "../api";
+
+export default function ImportPage() {
+  const qc = useQueryClient();
+  const connectors = useQuery({ queryKey: ["connectors"], queryFn: () => api.get("/connectors") });
+  const accounts = useQuery({ queryKey: ["accounts"], queryFn: () => api.get("/accounts") });
+  const batches = useQuery({ queryKey: ["batches"], queryFn: () => api.get("/imports") });
+
+  const [connector, setConnector] = useState("");
+  const [accountId, setAccountId] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [newAccount, setNewAccount] = useState("");
+  const [abroad, setAbroad] = useState(true);
+
+  const createAccount = useMutation({
+    mutationFn: () =>
+      api.post("/accounts", { name: newAccount, platform: "MANUAL", is_abroad: abroad }),
+    onSuccess: () => {
+      setNewAccount("");
+      qc.invalidateQueries({ queryKey: ["accounts"] });
+    },
+  });
+
+  const upload = useMutation({
+    mutationFn: () => {
+      const fd = new FormData();
+      fd.append("connector", connector);
+      fd.append("account_id", accountId);
+      fd.append("file", file as File);
+      return api.upload("/imports", fd);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries();
+    },
+  });
+
+  return (
+    <>
+      <h2>Importar Excel</h2>
+
+      <div className="card">
+        <h3>Nueva cuenta</h3>
+        <input placeholder="Nombre (p. ej. Crypto.com)" value={newAccount} onChange={(e) => setNewAccount(e.target.value)} />
+        <label className="muted">
+          <input type="checkbox" checked={abroad} onChange={(e) => setAbroad(e.target.checked)} /> En el extranjero (Modelo 721)
+        </label>
+        <button onClick={() => createAccount.mutate()} disabled={!newAccount}>Crear cuenta</button>
+      </div>
+
+      <div className="card">
+        <h3>Subir fichero</h3>
+        <select value={connector} onChange={(e) => setConnector(e.target.value)}>
+          <option value="">— Conector —</option>
+          {(connectors.data ?? []).map((c: any) => (
+            <option key={c.name} value={c.name}>{c.name}</option>
+          ))}
+        </select>
+        <select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+          <option value="">— Cuenta —</option>
+          {(accounts.data ?? []).map((a: any) => (
+            <option key={a.id} value={a.id}>{a.name}</option>
+          ))}
+        </select>
+        <input type="file" accept=".xlsx" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+        <button onClick={() => upload.mutate()} disabled={!connector || !accountId || !file}>Importar</button>
+        {upload.isError && <p className="error">{String(upload.error)}</p>}
+        {upload.data && (
+          <p className="muted">
+            Insertadas {upload.data.inserted_count}, duplicadas {upload.data.duplicate_count}, estado {upload.data.status}.
+          </p>
+        )}
+      </div>
+
+      <div className="card">
+        <h3>Importaciones</h3>
+        <table>
+          <thead>
+            <tr><th>#</th><th>Conector</th><th>Fichero</th><th>Insertadas</th><th>Duplicadas</th><th>Estado</th></tr>
+          </thead>
+          <tbody>
+            {(batches.data ?? []).map((b: any) => (
+              <tr key={b.id}>
+                <td>{b.id}</td><td>{b.connector}</td><td>{b.filename}</td>
+                <td>{b.inserted_count}</td><td>{b.duplicate_count}</td><td>{b.status}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}

@@ -1,0 +1,9 @@
+[project]
+name = "crypto-trace-backend"
+version = "0.1.0"
+description = "Fiscal monitoring of cryptocurrencies (IRPF / FIFO)"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
