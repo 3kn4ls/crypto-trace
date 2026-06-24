@@ -1,0 +1,29 @@
+# Crypto-Trace — local stack.
+#   Frontend (nginx) on http://localhost:5173  ->  proxies /api to the backend.
+#   Backend (FastAPI) also exposed on http://localhost:8000 (docs at /docs).
+#   SQLite data persists in the named volume `backend-data`.
+#
+# Usage:
+#   docker compose up --build
+#   (Ctrl-C to stop; `docker compose down` to remove containers.)
+
+services:
+  backend:
+    build: ./backend
+    environment:
+      - CRYPTO_TRACE_DB=/data/crypto_trace.db
+    volumes:
+      - backend-data:/data
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  backend-data:

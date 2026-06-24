@@ -51,7 +51,19 @@ exchange = añadir un conector, sin tocar la lógica fiscal.
 
 ## Puesta en marcha
 
-### Backend
+### Docker (recomendado para probar)
+
+```bash
+docker compose up --build
+```
+
+- App: <http://localhost:5173> (nginx sirve el SPA y hace de proxy a `/api`).
+- API/Docs: <http://localhost:8000/docs>.
+- La base de datos SQLite persiste en el volumen `backend-data`.
+- Parar: `Ctrl-C`; eliminar contenedores: `docker compose down`
+  (añade `-v` para borrar también los datos).
+
+### Backend (sin Docker)
 
 ```bash
 cd backend
