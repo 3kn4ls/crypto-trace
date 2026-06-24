@@ -11,6 +11,9 @@ node_modules/
 frontend/dist/
 *.log
 
+# Datos fiscales personales (informes/extractos de exchanges) — NUNCA subir
+informes/
+
 # OS / editors
 .DS_Store
 .idea/
