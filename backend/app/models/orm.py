@@ -139,6 +139,7 @@ class Transaction(Base):
     is_internal_transfer: Mapped[bool] = mapped_column(Boolean, default=True)
 
     taxpayer: Mapped["Taxpayer"] = relationship()
+    account: Mapped["Account"] = relationship(foreign_keys=[account_id])
     asset_in: Mapped[Asset | None] = relationship(foreign_keys=[asset_in_id])
     asset_out: Mapped[Asset | None] = relationship(foreign_keys=[asset_out_id])
     fee_asset: Mapped[Asset | None] = relationship(foreign_keys=[fee_asset_id])

@@ -10,6 +10,21 @@ interface Transaction {
   notes: string | null;
 }
 
+const TX_LABELS: Record<string, string> = {
+  BUY: "Compra",
+  SELL: "Venta",
+  SWAP: "Permuta",
+  TRANSFER: "Transferencia",
+  DEPOSIT: "Depósito",
+  WITHDRAWAL: "Retirada",
+  STAKING_REWARD: "Staking",
+  AIRDROP: "Airdrop",
+  REFERRAL: "Referido / Cashback",
+  SPEND: "Gasto",
+  REVERSAL: "Reversión",
+  FEE: "Comisión",
+};
+
 export default function TransactionEditDialog({
   transaction,
   onClose,
@@ -18,6 +33,7 @@ export default function TransactionEditDialog({
   onClose: () => void;
 }) {
   const qc = useQueryClient();
+  const [type, setType] = useState(transaction.type);
   const [costBasis, setCostBasis] = useState(transaction.cost_basis_eur ?? "");
   const [isInternal, setIsInternal] = useState(transaction.is_internal_transfer);
   const [notes, setNotes] = useState(transaction.notes ?? "");
@@ -25,6 +41,7 @@ export default function TransactionEditDialog({
   const update = useMutation({
     mutationFn: () =>
       api.patch(`/transactions/${transaction.id}`, {
+        type: type !== transaction.type ? type : undefined,
         cost_basis_eur: costBasis.trim() ? costBasis : null,
         is_internal_transfer: isInternal,
         notes: notes.trim() || null,
@@ -32,6 +49,7 @@ export default function TransactionEditDialog({
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["transactions"] });
       qc.invalidateQueries({ queryKey: ["reviews"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
       onClose();
     },
   });
@@ -44,9 +62,20 @@ export default function TransactionEditDialog({
           <button className="close" onClick={onClose}>×</button>
         </div>
         <div className="modal-body">
-          <div style={{ marginBottom: 12 }}>
-            <strong>Tipo:</strong> {transaction.type}
-          </div>
+          <label style={{ display: "block", marginBottom: 12 }}>
+            Tipo de transacción
+            <select
+              value={type}
+              onChange={(e) => setType(e.target.value)}
+              style={{ width: "100%", marginTop: 4 }}
+            >
+              {Object.entries(TX_LABELS).map(([k, label]) => (
+                <option key={k} value={k}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
           <label style={{ display: "block", marginBottom: 12 }}>
             Coste base explícito (EUR)
             <input

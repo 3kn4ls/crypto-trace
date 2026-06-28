@@ -88,6 +88,7 @@ class RewardPreferenceOut(BaseModel):
 
 
 class TransactionUpdateIn(BaseModel):
+    type: TransactionType | None = None
     cost_basis_eur: Decimal | None = None
     is_internal_transfer: bool | None = None
     notes: str | None = None

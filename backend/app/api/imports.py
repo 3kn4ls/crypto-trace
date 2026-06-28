@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import json
+from io import BytesIO
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app.connectors import get_connector
 from app.core.db import get_db
 from app.models import Account, ImportBatch, Taxpayer, Transaction
 from app.services.import_service import import_excel
@@ -39,6 +41,54 @@ async def upload(
     except KeyError as exc:
         raise HTTPException(400, str(exc))
     return _batch_dict(batch)
+
+
+@router.post("/preview")
+async def preview(
+    connector: str = Form(...),
+    taxpayer_id: int = Form(...),
+    account_id: int = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+) -> dict:
+    if db.get(Taxpayer, taxpayer_id) is None:
+        raise HTTPException(404, f"Contribuyente {taxpayer_id} no existe")
+    account = db.get(Account, account_id)
+    if account is None:
+        raise HTTPException(404, f"Cuenta {account_id} no existe")
+    if account.taxpayer_id != taxpayer_id:
+        raise HTTPException(400, "La cuenta no pertenece al contribuyente seleccionado")
+
+    content = await file.read()
+    try:
+        parsed = get_connector(connector).parse(BytesIO(content))
+    except KeyError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    preview_rows = []
+    for ct in parsed.transactions[:10]:
+        preview_rows.append(
+            {
+                "timestamp": ct.timestamp.isoformat(),
+                "type": ct.type.value if hasattr(ct.type, "value") else str(ct.type),
+                "asset_in": ct.asset_in,
+                "amount_in": str(ct.amount_in) if ct.amount_in is not None else None,
+                "asset_out": ct.asset_out,
+                "amount_out": str(ct.amount_out) if ct.amount_out is not None else None,
+                "eur_value": str(ct.eur_value) if ct.eur_value is not None else None,
+                "notes": ct.notes,
+            }
+        )
+
+    return {
+        "connector": connector,
+        "filename": file.filename or "upload.xlsx",
+        "total_rows": len(parsed.transactions) + len(parsed.errors),
+        "parsed_count": len(parsed.transactions),
+        "error_count": len(parsed.errors),
+        "preview": preview_rows,
+        "errors": [{"row": e.row, "message": e.message} for e in parsed.errors],
+    }
 
 
 @router.get("")

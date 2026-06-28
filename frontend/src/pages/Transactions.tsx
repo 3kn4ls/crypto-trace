@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api";
+import ExportButtons from "../components/ExportButtons";
 import ReviewDialog from "../components/ReviewDialog";
 import TransactionEditDialog from "../components/TransactionEditDialog";
 import { buildTaxpayerQuery, useTaxpayers } from "../TaxpayerContext";
@@ -37,7 +38,10 @@ export default function Transactions() {
 
   return (
     <>
-      <h2>Transacciones</h2>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h2 style={{ margin: 0 }}>Transacciones</h2>
+        <ExportButtons scope="transactions" year={year} taxpayerIds={selectedIds} />
+      </div>
       <div className="card">
         <input
           placeholder="Año (p. ej. 2024)"

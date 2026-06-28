@@ -19,6 +19,7 @@ import {
 } from "recharts";
 import { Link } from "react-router-dom";
 import { api } from "../api";
+import ExportButtons from "../components/ExportButtons";
 import { buildTaxpayerQuery, useTaxpayers } from "../TaxpayerContext";
 
 const COLORS = ["#38bdf8", "#4ade80", "#f472b6", "#fbbf24", "#a78bfa", "#fb923c", "#34d399", "#60a5fa"];
@@ -79,28 +80,48 @@ export default function Dashboard() {
   const [priceMsg, setPriceMsg] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
-  const fetchPrices = useMutation({
-    mutationFn: () =>
-      api.post("/prices/fetch-historical", {
-        taxpayer_ids: selectedIds.length > 0 ? selectedIds : undefined,
-        year: year || undefined,
-      }),
-    onSuccess: (res: any) => {
-      const fetched = (res.fetched ?? []).length;
-      const missing = (res.missing ?? []).length;
-      const skipped = (res.skipped ?? []).length;
-      const errors = (res.errors ?? []).length;
+  const pricePayload = {
+    taxpayer_ids: selectedIds.length > 0 ? selectedIds : undefined,
+    year: year || undefined,
+  };
+
+  const onPriceError = (err: any) =>
+    setPriceMsg(`Error al cargar precios: ${err.message ?? err}`);
+
+  const fetchHistorical = useMutation({
+    mutationFn: () => api.post("/prices/fetch-historical", pricePayload),
+    onSuccess: (hist: any) => {
+      const fetched = (hist.fetched ?? []).length;
+      const skipped = (hist.skipped ?? []).length;
+      const missing = (hist.missing ?? []).length;
+      const errors = (hist.errors ?? []).length;
       setPriceMsg(
-        `Precios cargados: ${fetched} cotizaciones. ` +
-          (missing ? `Sin mapear: ${missing}. ` : "") +
-          (skipped ? `Saltados: ${skipped}. ` : "") +
-          (errors ? `Errores: ${errors}.` : "")
+        `Cierres 31/12: ${fetched} cotizaciones${skipped ? ` (+${skipped} ya existentes)` : ""}.` +
+          (missing ? ` Sin mapear/datos: ${missing}.` : "") +
+          (errors ? ` Errores: ${errors}.` : "")
       );
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
-    onError: (err: any) => {
-      setPriceMsg(`Error al cargar precios: ${err.message ?? err}`);
+    onError: onPriceError,
+  });
+
+  const fetchCurrent = useMutation({
+    mutationFn: () =>
+      api.post("/prices/fetch-current", {
+        taxpayer_ids: selectedIds.length > 0 ? selectedIds : undefined,
+      }),
+    onSuccess: (cur: any) => {
+      const fetched = (cur.fetched ?? []).length;
+      const missing = (cur.missing ?? []).length;
+      const errors = (cur.errors ?? []).length;
+      setPriceMsg(
+        `Precios actuales: ${fetched} cotizaciones.` +
+          (missing ? ` Sin mapear/datos: ${missing}.` : "") +
+          (errors ? ` Errores: ${errors}.` : "")
+      );
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
+    onError: onPriceError,
   });
 
   const params = new URLSearchParams();
@@ -193,12 +214,22 @@ export default function Dashboard() {
             </select>
           </label>
           <button
-            onClick={() => fetchPrices.mutate()}
-            disabled={fetchPrices.isPending}
-            title="Cargar precios de cierre de año desde CoinGecko"
+            onClick={() => fetchHistorical.mutate()}
+            disabled={fetchHistorical.isPending || fetchCurrent.isPending}
+            title="Cargar cierres de 31/12 desde CoinGecko"
           >
-            {fetchPrices.isPending ? "Cargando precios..." : "Cargar precios históricos (CoinGecko)"}
+            {fetchHistorical.isPending ? "Cargando cierres..." : "Cargar cierres 31/12 (CoinGecko)"}
           </button>
+          <button
+            onClick={() => fetchCurrent.mutate()}
+            disabled={fetchHistorical.isPending || fetchCurrent.isPending}
+            title="Cargar precios actuales desde CoinGecko"
+          >
+            {fetchCurrent.isPending ? "Cargando actuales..." : "Cargar precios actuales (CoinGecko)"}
+          </button>
+          <div style={{ borderLeft: "1px solid rgba(148,163,184,0.3)", paddingLeft: 12 }}>
+            <ExportButtons scope="summary" year={year} taxpayerIds={selectedIds} />
+          </div>
         </div>
       </div>
 
@@ -233,8 +264,8 @@ export default function Dashboard() {
                 <div className="kpi-trend muted" style={{ color: "#fbbf24" }}>
                   ⚠️ {portfolio.assets_without_price} activo{portfolio.assets_without_price > 1 ? "s" : ""} sin cotización.
                   {" "}
-                  <button className="link" onClick={() => fetchPrices.mutate()} disabled={fetchPrices.isPending}>
-                    Cargar precios
+                  <button className="link" onClick={() => fetchHistorical.mutate()} disabled={fetchHistorical.isPending || fetchCurrent.isPending}>
+                    Cargar cierres 31/12
                   </button>
                 </div>
               ) : (

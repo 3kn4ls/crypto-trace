@@ -10,9 +10,9 @@ from sqlalchemy.orm import Session
 
 from app.connectors import list_connectors
 from app.core.db import get_db
-from app.models import Asset, Disposal, IncomeEvent, Lot, PriceQuote
+from app.models import Asset, Disposal, IncomeEvent, Lot, PriceQuote, Transaction
 from app.schemas import PriceQuoteIn
-from app.services.pricing_provider import coin_id_for, discover_coin_id, fetch_history_eur
+from app.services.pricing_provider import coin_id_for, discover_coin_id, fetch_current_eur, fetch_history_eur
 from app.services.pricing_service import upsert_price
 
 router = APIRouter()
@@ -51,6 +51,15 @@ def add_price(payload: PriceQuoteIn, db: Session = Depends(get_db)) -> dict:
     return {"asset": asset.symbol, "date": str(q.date), "price_eur": str(q.price_eur)}
 
 
+def _collect_assets_for_taxpayers(db: Session, ids: list[int] | None) -> dict[int, Asset]:
+    """Return non-fiat assets that appear in lots for the given taxpayers."""
+    q_lots = select(Lot.asset_id).distinct()
+    if ids:
+        q_lots = q_lots.where(Lot.taxpayer_id.in_(ids))
+    asset_ids = [aid for aid in db.scalars(q_lots) if aid is not None]
+    return {a.id: a for a in db.scalars(select(Asset).where(Asset.id.in_(asset_ids))) if not a.is_fiat}
+
+
 @router.post("/prices/fetch-historical")
 def fetch_historical_prices(
     payload: FetchHistoricalPricesIn,
@@ -65,22 +74,23 @@ def fetch_historical_prices(
 
     q_disposals = select(Disposal.fiscal_year)
     q_incomes = select(IncomeEvent.fiscal_year)
+    q_tx_years = select(Transaction.fiscal_year).distinct()
     if ids:
         q_disposals = q_disposals.where(Disposal.taxpayer_id.in_(ids))
         q_incomes = q_incomes.where(IncomeEvent.taxpayer_id.in_(ids))
-    years = sorted(set(db.scalars(q_disposals)) | set(db.scalars(q_incomes)))
+        q_tx_years = q_tx_years.where(Transaction.taxpayer_id.in_(ids))
+    years = sorted(
+        set(db.scalars(q_disposals))
+        | set(db.scalars(q_incomes))
+        | set(db.scalars(q_tx_years))
+    )
     if payload.year is not None:
         years = [payload.year] if payload.year in years else []
 
     if not years:
         return {"fetched": [], "missing": [], "skipped": [], "errors": []}
 
-    # Collect asset ids that appear in lots for these taxpayers.
-    q_lots = select(Lot.asset_id).distinct()
-    if ids:
-        q_lots = q_lots.where(Lot.taxpayer_id.in_(ids))
-    asset_ids = [aid for aid in db.scalars(q_lots) if aid is not None]
-    assets = {a.id: a for a in db.scalars(select(Asset).where(Asset.id.in_(asset_ids))) if not a.is_fiat}
+    assets = _collect_assets_for_taxpayers(db, ids)
 
     fetched: list[dict] = []
     missing: list[dict] = []
@@ -117,3 +127,34 @@ def fetch_historical_prices(
             fetched.append({"asset": asset.symbol, "year": y, "date": str(target), "price_eur": str(price)})
 
     return {"fetched": fetched, "missing": missing, "skipped": skipped, "errors": errors}
+
+
+@router.post("/prices/fetch-current")
+def fetch_current_prices(
+    payload: FetchHistoricalPricesIn,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Fetch current EUR prices from CoinGecko for assets held by the taxpayer(s).
+
+    Stores them under today's date so the 'all years' dashboard view can value
+    the portfolio at the latest market price.
+    """
+    ids = payload.taxpayer_ids if payload.taxpayer_ids else ([payload.taxpayer_id] if payload.taxpayer_id else None)
+    assets = _collect_assets_for_taxpayers(db, ids)
+    today = date.today()
+
+    fetched: list[dict] = []
+    missing: list[dict] = []
+    errors: list[str] = []
+
+    for asset in assets.values():
+        price = fetch_current_eur(asset.symbol)
+        if price is None:
+            missing.append({"asset": asset.symbol, "reason": "sin_precio_actual"})
+            errors.append(f"No se pudo obtener precio actual para {asset.symbol}")
+            continue
+
+        upsert_price(db, asset.id, today, price, source="coingecko")
+        fetched.append({"asset": asset.symbol, "date": str(today), "price_eur": str(price)})
+
+    return {"fetched": fetched, "missing": missing, "errors": errors}

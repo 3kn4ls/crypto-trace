@@ -63,6 +63,8 @@ def patch_transaction(
     tx = db.get(Transaction, tx_id)
     if tx is None:
         raise HTTPException(404, "Transacción no encontrada")
+    if payload.type is not None:
+        tx.type = payload.type
     if payload.cost_basis_eur is not None:
         tx.cost_basis_eur = payload.cost_basis_eur
     if payload.is_internal_transfer is not None:

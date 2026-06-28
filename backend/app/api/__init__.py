@@ -1,7 +1,7 @@
 """API routers."""
 from fastapi import APIRouter
 
-from app.api import accounts, fiscal, imports, meta, reports, reviews, taxpayers, transactions
+from app.api import accounts, exports, fiscal, imports, meta, reports, reviews, taxpayers, transactions
 
 api_router = APIRouter()
 api_router.include_router(meta.router, tags=["meta"])
@@ -12,3 +12,4 @@ api_router.include_router(transactions.router, prefix="/transactions", tags=["tr
 api_router.include_router(reviews.router, prefix="/reviews", tags=["reviews"])
 api_router.include_router(fiscal.router, prefix="/fiscal-years", tags=["fiscal"])
 api_router.include_router(reports.router, prefix="/reports", tags=["reports"])
+api_router.include_router(exports.router, prefix="/exports", tags=["exports"])

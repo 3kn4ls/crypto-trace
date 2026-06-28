@@ -14,6 +14,7 @@ export default function ImportPage() {
   const [file, setFile] = useState<File | null>(null);
   const [newAccount, setNewAccount] = useState("");
   const [abroad, setAbroad] = useState(true);
+  const [preview, setPreview] = useState<any | null>(null);
 
   const connectors = useQuery({ queryKey: ["connectors"], queryFn: () => api.get("/connectors") });
   const accounts = useQuery({
@@ -51,7 +52,22 @@ export default function ImportPage() {
       return api.upload("/imports", fd);
     },
     onSuccess: () => {
+      setPreview(null);
       qc.invalidateQueries();
+    },
+  });
+
+  const previewMutation = useMutation({
+    mutationFn: () => {
+      const fd = new FormData();
+      fd.append("connector", connector);
+      fd.append("taxpayer_id", importTaxpayerId);
+      fd.append("account_id", accountId);
+      fd.append("file", file as File);
+      return api.upload("/imports/preview", fd);
+    },
+    onSuccess: (data: any) => {
+      setPreview(data);
     },
   });
 
@@ -137,18 +153,84 @@ export default function ImportPage() {
           accept=".csv,.xlsx"
           onChange={(e) => setFile(e.target.files?.[0] ?? null)}
         />
-        <button
-          onClick={() => upload.mutate()}
-          disabled={!connector || !importTaxpayerId || !accountId || !file}
-        >
-          Importar
-        </button>
+        <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+          <button
+            className="secondary"
+            onClick={() => previewMutation.mutate()}
+            disabled={!connector || !importTaxpayerId || !accountId || !file || previewMutation.isPending}
+          >
+            {previewMutation.isPending ? "Analizando..." : "Vista previa"}
+          </button>
+          <button
+            onClick={() => upload.mutate()}
+            disabled={!connector || !importTaxpayerId || !accountId || !file || upload.isPending}
+          >
+            {upload.isPending ? "Importando..." : "Confirmar importación"}
+          </button>
+        </div>
         {upload.isError && <p className="error">{String(upload.error)}</p>}
         {upload.data && (
           <p className="muted">
             Insertadas {upload.data.inserted_count}, duplicadas{" "}
             {upload.data.duplicate_count}, estado {upload.data.status}.
+            {upload.data.errors && upload.data.errors.length > 0 && (
+              <span>{` · ${upload.data.errors.length} filas con error`}</span>
+            )}
           </p>
+        )}
+
+        {preview && (
+          <div style={{ marginTop: 20 }}>
+            <div className="muted" style={{ marginBottom: 8 }}>
+              Vista previa: {preview.parsed_count} filas parseadas,{" "}
+              {preview.error_count} errores (mostrando hasta 10 primeras).
+            </div>
+            {preview.preview.length > 0 && (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Tipo</th>
+                    <th>Entrada</th>
+                    <th>Salida</th>
+                    <th className="numeric">EUR</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.preview.map((row: any, i: number) => (
+                    <tr key={i}>
+                      <td>{new Date(row.timestamp).toLocaleString("es-ES")}</td>
+                      <td>{row.type}</td>
+                      <td>{row.amount_in ? `${row.amount_in} ${row.asset_in}` : "—"}</td>
+                      <td>{row.amount_out ? `${row.amount_out} ${row.asset_out}` : "—"}</td>
+                      <td className="numeric">{row.eur_value ?? "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {preview.errors.length > 0 && (
+              <>
+                <h4 style={{ marginTop: 16, color: "#fca5a5" }}>Errores por fila</h4>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Fila</th>
+                      <th>Mensaje</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.errors.map((e: any, i: number) => (
+                      <tr key={i}>
+                        <td>{e.row}</td>
+                        <td className="error">{e.message}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            )}
+          </div>
         )}
       </div>
 

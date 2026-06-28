@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api";
+import ExportButtons from "../components/ExportButtons";
 import { buildTaxpayerQuery, useTaxpayers } from "../TaxpayerContext";
 
 export default function Model721() {
@@ -19,7 +20,10 @@ export default function Model721() {
 
   return (
     <>
-      <h2>Modelo 721 — criptos en el extranjero</h2>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h2 style={{ margin: 0 }}>Modelo 721 — criptos en el extranjero</h2>
+        <ExportButtons scope="model721" year={year} taxpayerIds={selectedIds} />
+      </div>
       <div className="card">
         <input value={year} onChange={(e) => setYear(e.target.value)} placeholder="Año" />
         {d && (

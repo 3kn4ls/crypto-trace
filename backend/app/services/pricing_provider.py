@@ -14,6 +14,7 @@ import requests
 
 # Free public CoinGecko endpoint. Rate limit is roughly 10-30 calls/minute.
 COINGECKO_HISTORY_URL = "https://api.coingecko.com/api/v3/coins/{coin_id}/history"
+COINGECKO_CURRENT_URL = "https://api.coingecko.com/api/v3/simple/price"
 
 # Common symbol -> CoinGecko id mapping. The user can extend this via settings
 # in the future; for now it covers the assets most likely to appear in exports.
@@ -166,3 +167,26 @@ def fetch_symbol_history_eur(symbol: str, on: date, timeout: int = 20) -> Decima
     if not coin_id:
         return None
     return fetch_history_eur(coin_id, on, timeout=timeout)
+
+
+def fetch_current_eur(symbol: str, timeout: int = 20) -> Decimal | None:
+    """Fetch the current EUR price for a single symbol from CoinGecko."""
+    coin_id = coin_id_for(symbol)
+    if not coin_id:
+        coin_id = discover_coin_id(symbol, timeout=timeout)
+    if not coin_id:
+        return None
+    try:
+        response = requests.get(
+            COINGECKO_CURRENT_URL,
+            params={"ids": coin_id, "vs_currencies": "eur"},
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        data = response.json()
+        eur = data.get(coin_id, {}).get("eur")
+        if eur is None:
+            return None
+        return Decimal(str(eur))
+    except Exception:
+        return None
