@@ -1,0 +1,26 @@
+# Revolut "Gains / Losses" tax export connector.
+# One CSV row represents a completed round-trip: the asset is bought on
+# ``Date acquired`` and sold on ``Date sold``. The connector emits two
+# canonical transactions per row: a BUY and a SELL.
+#
+# NOTE: Revolut exports this report in USD. The connector applies the optional
+# ``usd_to_eur_rate`` multiplier to the USD amounts before storing them as
+# ``eur_value``. Leave the rate at 1.0 to import raw USD values (and adjust
+# later via reviews / manual edits).
+header_row: 1
+decimal_sep: "."
+date_formats:
+  - "%Y-%m-%d"
+
+columns:
+  date_acquired: "Date acquired"
+  date_sold: "Date sold"
+  symbol: "Symbol"
+  quantity: "Quantity"
+  cost_basis: "Cost basis"
+  gross_proceeds: "Gross proceeds"
+  fees: "Fees"
+  currency: "Currency"
+
+# Approximate USD -> EUR rate. Override to match the tax year you are reporting.
+usd_to_eur_rate: 0.92
