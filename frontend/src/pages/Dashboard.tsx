@@ -121,6 +121,8 @@ export default function Dashboard() {
   const reviews = d.reviews ?? {};
   const model721 = d.model721 ?? {};
   const evolution = (d.portfolio_evolution ?? []) as any[];
+  const investedTotals = d.invested_totals ?? {};
+  const contributions = (d.contributions ?? []) as any[];
 
   const availableYears = useMemo(
     () => Array.from(new Set([...(years.map((y) => y.year) as number[]), ...(evolution.map((e) => e.year) as number[])])).sort((a, b) => b - a),
@@ -220,6 +222,14 @@ export default function Dashboard() {
               <div className="stat">{eur(portfolio.total_value_eur)}</div>
               <div className={`kpi-trend ${trendClass(Number(portfolio.unrealized_gain_eur))}`}>
                 {Number(portfolio.unrealized_gain_eur) >= 0 ? "▲" : "▼"} {eur(portfolio.unrealized_gain_eur)} no realizado
+              </div>
+            </div>
+
+            <div className="card kpi">
+              <div className="muted">Total aportado</div>
+              <div className="stat">{eur(investedTotals.invested_eur)}</div>
+              <div className="kpi-trend muted">
+                {eur(investedTotals.rewards_eur)} en recompensas · {eur(investedTotals.cost_basis_eur)} base de coste total
               </div>
             </div>
 
@@ -466,6 +476,50 @@ export default function Dashboard() {
               {lastTransactions.length === 0 && <p className="muted">Sin transacciones.</p>}
             </div>
           </div>
+
+          {contributions.length > 0 && (
+            <div className="card">
+              <h3>Dinero aportado por activo</h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Activo</th>
+                    <th className="numeric">Cantidad</th>
+                    <th className="numeric">Comprado (EUR)</th>
+                    <th className="numeric">Recompensas (EUR)</th>
+                    <th className="numeric">Base de coste</th>
+                    <th className="numeric">Valor actual</th>
+                    <th className="numeric">Rentabilidad</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {contributions.map((c: any) => {
+                    const top = (portfolio.top_assets ?? []).find((a: any) => a.asset === c.asset);
+                    const value = top ? Number(top.value_eur ?? 0) : 0;
+                    const cost = Number(c.cost_basis_eur ?? 0);
+                    const pnl = value - cost;
+                    return (
+                      <tr key={c.asset}>
+                        <td><strong>{c.asset}</strong></td>
+                        <td className="numeric">{num(c.quantity)}</td>
+                        <td className="numeric">{eur(c.invested_eur)}</td>
+                        <td className="numeric">{eur(c.rewards_eur)}</td>
+                        <td className="numeric">{eur(c.cost_basis_eur)}</td>
+                        <td className="numeric">{eur(value)}</td>
+                        <td className={`numeric ${trendClass(pnl)}`}>{pnl > 0 ? "+" : ""}{eur(pnl)} (
+                          {cost > 0 ? ((pnl / cost) * 100).toFixed(2) : "—"}%)
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <div style={{ marginTop: 12, display: "flex", gap: 24 }} className="muted">
+                <span>Total aportado: <strong>{eur(investedTotals.invested_eur)}</strong></span>
+                <span>Total recompensas: <strong>{eur(investedTotals.rewards_eur)}</strong></span>
+                <span>Base de coste: <strong>{eur(investedTotals.cost_basis_eur)}</strong></span>
+              </div>            </div>
+          )}
 
           {pendingReviews.length > 0 && (
             <div className="card">

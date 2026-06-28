@@ -8,8 +8,8 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.money import ZERO, quantize_eur
-from app.models import Account, Asset, Disposal, IncomeEvent, Lot, LotConsumption, ReviewItem, Transaction
+from app.core.money import ZERO, quantize_eur, to_decimal
+from app.models import Account, Asset, Disposal, IncomeEvent, Lot, LotConsumption, ReviewItem, Transaction, TransactionType
 from app.services.pricing_service import get_price
 
 
@@ -220,6 +220,55 @@ def dashboard(db: Session, *, taxpayer_ids: list[int] | None = None, year: int |
         key = tx.type.value if hasattr(tx.type, "value") else str(tx.type)
         tx_by_type[key] += 1
 
+    # ---- contributions / total invested (cash inflow) per asset ------------
+    # Tracks fiat spent to buy each asset, plus the EUR cost of income received.
+    contributions_by_asset: dict[int, dict[str, Decimal]] = defaultdict(
+        lambda: {"invested_eur": ZERO, "rewards_eur": ZERO, "cost_basis_eur": ZERO, "quantity": ZERO}
+    )
+    for tx in transactions:
+        if tx.asset_in_id is None or tx.asset_in is None or tx.asset_in.is_fiat:
+            continue
+        asset_id = tx.asset_in_id
+        qty = to_decimal(tx.amount_in)
+        eur = to_decimal(tx.eur_value)
+        contributions_by_asset[asset_id]["quantity"] += qty
+        if tx.type == TransactionType.BUY:
+            # Direct fiat purchase: the EUR value is cash contributed.
+            contributions_by_asset[asset_id]["invested_eur"] += eur
+            contributions_by_asset[asset_id]["cost_basis_eur"] += eur
+        elif tx.type in (TransactionType.STAKING_REWARD, TransactionType.REFERRAL, TransactionType.AIRDROP):
+            # Income-like acquisition: counted separately as "rewards", but also
+            # adds to cost basis so totals reconcile with FIFO lots.
+            contributions_by_asset[asset_id]["rewards_eur"] += eur
+            contributions_by_asset[asset_id]["cost_basis_eur"] += eur
+        elif tx.type == TransactionType.DEPOSIT and tx.eur_value:
+            # Deposit with known cost basis (e.g. opening position or external transfer in).
+            contributions_by_asset[asset_id]["invested_eur"] += eur
+            contributions_by_asset[asset_id]["cost_basis_eur"] += eur
+        elif tx.type == TransactionType.SWAP:
+            # Crypto-to-crypto swap: cost basis is the EUR value provided by the connector.
+            contributions_by_asset[asset_id]["cost_basis_eur"] += eur
+
+    # Subtract disposals that happened in the selected period so "invested" and
+    # "rewards" reflect what remains in the portfolio. We keep it simple:
+    # for the dashboard we show cumulative totals (money put in vs value now).
+
+    contributions = []
+    for asset_id, agg in contributions_by_asset.items():
+        if agg["quantity"] <= ZERO:
+            continue
+        asset = db.get(Asset, asset_id)
+        if asset is None:
+            continue
+        contributions.append({
+            "asset": asset.symbol,
+            "quantity": str(agg["quantity"]),
+            "invested_eur": str(quantize_eur(agg["invested_eur"])),
+            "rewards_eur": str(quantize_eur(agg["rewards_eur"])),
+            "cost_basis_eur": str(quantize_eur(agg["cost_basis_eur"])),
+        })
+    contributions.sort(key=lambda x: _to_dec(x["cost_basis_eur"]), reverse=True)
+
     q_income = select(IncomeEvent)
     if taxpayer_ids:
         q_income = q_income.where(IncomeEvent.taxpayer_id.in_(taxpayer_ids))
@@ -315,6 +364,12 @@ def dashboard(db: Session, *, taxpayer_ids: list[int] | None = None, year: int |
                 for k, v in income_by_category.items()
             },
             "last_transactions": last_transactions,
+        },
+        "contributions": contributions,
+        "invested_totals": {
+            "invested_eur": str(quantize_eur(sum((_to_dec(c["invested_eur"]) for c in contributions), ZERO))),
+            "rewards_eur": str(quantize_eur(sum((_to_dec(c["rewards_eur"]) for c in contributions), ZERO))),
+            "cost_basis_eur": str(quantize_eur(sum((_to_dec(c["cost_basis_eur"]) for c in contributions), ZERO))),
         },
         "reviews": {
             "summary": review_summary,

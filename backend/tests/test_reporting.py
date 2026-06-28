@@ -47,6 +47,19 @@ def test_dashboard_returns_expected_keys(client: TestClient):
     assert dash["activity"]["transactions_by_type"].get("BUY") == 1
     assert dash["activity"]["transactions_by_type"].get("SELL") == 1
 
+    # Contributions section is present and shows invested/rewards per asset.
+    assert "contributions" in dash
+    assert "invested_totals" in dash
+    btc_contrib = next((c for c in dash["contributions"] if c["asset"] == "BTC"), None)
+    assert btc_contrib is not None
+    assert btc_contrib["invested_eur"] == "30000.00"
+    assert btc_contrib["cost_basis_eur"] == "30000.00"  # only the BUY adds to cost basis here
+    cro_contrib = next((c for c in dash["contributions"] if c["asset"] == "CRO"), None)
+    assert cro_contrib is not None
+    assert cro_contrib["rewards_eur"] == "50.00"
+    assert dash["invested_totals"]["invested_eur"] == "30000.00"
+    assert dash["invested_totals"]["rewards_eur"] == "50.00"
+
 
 def test_dashboard_filters_by_year(client: TestClient):
     tp = client.post("/api/taxpayers", json={"name": "Dash Year", "tax_id": "66666666F"}).json()
