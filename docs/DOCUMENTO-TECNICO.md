@@ -321,6 +321,7 @@ class CanonicalTransaction:
 | Conector | Fichero | Mapping | Estado |
 |----------|---------|---------|--------|
 | `CRYPTO_COM` | `crypto_com.py` | `crypto_com.yaml` | Implementado para App/exchange; soporta 13+ tipos incluyendo cashback, reversión, transfers internos/P2P. **PROVISIONAL**; ajustar con export real. |
+| `CRYPTO_EXCHANGE` | `crypto_exchange.py` | `crypto_exchange.yaml` | Implementado para el journal de Crypto.com Exchange (`OEX_TRANSACTION_*`). Agrupa filas por `Order ID`, colapsa múltiples fills en una sola operación, convierte `USD_Stable_Coin` a EUR vía Frankfurter y emite `BUY`/`SELL` canónicos. **PROVISIONAL**. |
 | `REVOLUT` | `revolut.py` | `revolut.yaml` | Implementado para el informe de ganancias/pérdidas de Revolut (`Date acquired`, `Date sold`, `Symbol`, `Quantity`, `Cost basis`, `Gross proceeds`, `Fees`, `Currency`). Cada fila genera un `BUY` + un `SELL` ordenados cronológicamente. Convierte USD a EUR usando el tipo de cambio oficial del BCE (Frankfurter) para cada fecha; usa `fallback_usd_to_eur_rate` si la API no responde. |
 | `REVOLUT_EXCHANGE` | `revolut_exchange.py` | `revolut_exchange.yaml` | Esqueleto implementado. **PROVISIONAL**. |
 
@@ -513,9 +514,10 @@ Ubicados en `backend/tests/`:
 - `test_reviews.py`: generación de avisos desde importaciones (P2P) y del motor FIFO; resolución de avisos vía API, incluyendo añadir cotización y revertir resoluciones.
 - `test_reporting.py`: agregaciones del dashboard (`/api/reports/dashboard`) y filtrado por año fiscal.
 - `test_revolut.py`: conector Revolut para informe de ganancias/pérdidas (`BUY`+`SELL` por fila, comisiones, orden cronológico, import del fichero real en `informes/`); usa contribuyente.
+- `test_crypto_exchange.py`: conector Crypto.com Exchange (agrupación por `Order ID`, conversión USD→EUR, comisiones en crypto y en fiat, import del fichero real en `informes/`); usa contribuyente.
 - `test_pricing_provider.py`: descubrimiento dinámico de IDs de CoinGecko y carga de cotizaciones históricas.
 
-En total el proyecto contiene **35 funciones de test** (+ 1 skipped si el CSV real de Crypto.com no está presente).
+En total el proyecto contiene **43 funciones de test** (+ skips si algún CSV real de muestra no está presente).
 
 Ejecución:
 ```bash
@@ -569,11 +571,12 @@ Un depósito solo crea lote FIFO si se proporciona `eur_value`. Esto permite dis
 - Soporte multi-contribuyente con `Taxpayer`, `taxpayer_id` en todas las entidades y declaración conjunta.
 - Cada transacción vinculada a contribuyente y origen de importación (`source`).
 - Conector `CRYPTO_COM` funcional para export CSV/XLSX con cashback, reversión, staking, P2P.
+- Conector `CRYPTO_EXCHANGE` funcional para el journal de Crypto.com Exchange (agrupación por `Order ID`, USD→EUR).
 - Conector `REVOLUT` funcional para el informe de ganancias/pérdidas de Revolut (USD, round-trip por fila).
 - Conector `REVOLUT_EXCHANGE` esqueleto.
 - Frontend funcional con 6 pantallas, selector global de contribuyente y dashboard completo con KPIs, filtros y gráficos; incluye botón para cargar precios históricos de CoinGecko.
 - Docker Compose operativo.
-- 35 funciones de test (+ 1 skipped por muestra real no presente).
+- 43 funciones de test (+ skips por muestras reales no presentes).
 
 ### 17.2 Tarea pendiente inmediata
 

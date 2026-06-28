@@ -17,6 +17,7 @@ class AssetKind(str, Enum):
 
 class AccountPlatform(str, Enum):
     CRYPTO_COM = "CRYPTO_COM"
+    CRYPTO_EXCHANGE = "CRYPTO_EXCHANGE"
     REVOLUT = "REVOLUT"
     MANUAL = "MANUAL"
     WALLET = "WALLET"

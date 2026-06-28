@@ -1,0 +1,42 @@
+# Crypto.com Exchange journal export mapping.
+# The export is a journal: every trade is split into two or more legs
+# (TRADING rows) plus optional TRADE_FEE rows, all sharing the same Order ID.
+# The connector groups by Order ID, aggregates legs and fees, converts
+# USD-denominated stablecoin amounts to EUR, and emits one canonical
+# transaction per order.
+header_row: 4
+decimal_sep: "."
+date_formats:
+  - "%Y-%m-%d %H:%M:%S.%f"
+  - "%Y-%m-%d %H:%M:%S"
+
+columns:
+  journal_id: "Journal ID"
+  timestamp: "Time (UTC)"
+  event_date: "Event Date"
+  journal_type: "Journal Type"
+  instrument: "Instrument"
+  taker_side: "Taker Side"
+  side: "Side"
+  quantity: "Transaction Quantity"
+  cost: "Transaction Cost"
+  realized_pnl: "Realized PNL"
+  order_id: "Order ID"
+  trade_id: "Trade ID"
+  trade_match_id: "Trade Match ID"
+  client_order_id: "Client Order Id"
+
+# Journal types that do not require an Order ID grouping.
+# Everything else is treated as a trade leg and grouped by order_id.
+singleton_types:
+  FIAT_OPENPAYD_DEPOSIT: DEPOSIT
+
+# Instruments that act as settlement currency (fiat or USD stablecoin).
+# They are converted to EUR when valuing the trade; crypto legs are never
+# converted through this table.
+fiat_instruments:
+  EUR: EUR
+  USD_STABLE_COIN: USD
+
+# Fallback USD/EUR rate used when the Frankfurter API is unreachable.
+fallback_usd_to_eur_rate: 0.92
