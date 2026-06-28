@@ -30,10 +30,22 @@ from app.models.enums import (
     FiscalYearStatus,
     ImportStatus,
     IncomeCategory,
+    ReviewCategory,
+    ReviewSeverity,
+    ReviewStatus,
     SummarySource,
     TransactionType,
 )
 from app.models.types import DecimalText
+
+
+class Taxpayer(Base):
+    __tablename__ = "taxpayers"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    tax_id: Mapped[str | None] = mapped_column(String(32), nullable=True)  # DNI/NIE
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
 class Asset(Base):
@@ -54,20 +66,27 @@ class Asset(Base):
 
 class Account(Base):
     __tablename__ = "accounts"
+    __table_args__ = (
+        UniqueConstraint("taxpayer_id", "name", name="uq_account_taxpayer_name"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    taxpayer_id: Mapped[int] = mapped_column(ForeignKey("taxpayers.id"), index=True)
+    name: Mapped[str] = mapped_column(String(128), index=True)
     platform: Mapped[AccountPlatform] = mapped_column(String(32), default=AccountPlatform.MANUAL)
     type: Mapped[AccountType] = mapped_column(String(16), default=AccountType.EXCHANGE)
     is_abroad: Mapped[bool] = mapped_column(Boolean, default=False)  # for Modelo 721
     country: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
+    taxpayer: Mapped["Taxpayer"] = relationship()
+
 
 class ImportBatch(Base):
     __tablename__ = "import_batches"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    taxpayer_id: Mapped[int] = mapped_column(ForeignKey("taxpayers.id"), index=True)
     connector: Mapped[str] = mapped_column(String(64))
     filename: Mapped[str] = mapped_column(String(256))
     file_hash: Mapped[str] = mapped_column(String(64), index=True)
@@ -79,6 +98,8 @@ class ImportBatch(Base):
     status: Mapped[ImportStatus] = mapped_column(String(16), default=ImportStatus.OK)
     errors_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    taxpayer: Mapped["Taxpayer"] = relationship()
+
 
 class Transaction(Base):
     """Atomic, normalised (canonical) movement. The single entry point into the
@@ -86,10 +107,11 @@ class Transaction(Base):
 
     __tablename__ = "transactions"
     __table_args__ = (
-        UniqueConstraint("account_id", "external_id", name="uq_tx_account_external"),
+        UniqueConstraint("taxpayer_id", "account_id", "external_id", name="uq_tx_taxpayer_account_external"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    taxpayer_id: Mapped[int] = mapped_column(ForeignKey("taxpayers.id"), index=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), index=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime, index=True)
     type: Mapped[TransactionType] = mapped_column(String(24), index=True)
@@ -107,10 +129,12 @@ class Transaction(Base):
 
     external_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     import_batch_id: Mapped[int | None] = mapped_column(ForeignKey("import_batches.id"), nullable=True)
+    source: Mapped[str | None] = mapped_column(String(64), nullable=True)  # origin connector
     raw_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     fiscal_year: Mapped[int] = mapped_column(Integer, index=True)
     notes: Mapped[str | None] = mapped_column(String(256), nullable=True)
 
+    taxpayer: Mapped["Taxpayer"] = relationship()
     asset_in: Mapped[Asset | None] = relationship(foreign_keys=[asset_in_id])
     asset_out: Mapped[Asset | None] = relationship(foreign_keys=[asset_out_id])
     fee_asset: Mapped[Asset | None] = relationship(foreign_keys=[fee_asset_id])
@@ -122,6 +146,7 @@ class Lot(Base):
     __tablename__ = "lots"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    taxpayer_id: Mapped[int] = mapped_column(ForeignKey("taxpayers.id"), index=True)
     asset_id: Mapped[int] = mapped_column(ForeignKey("assets.id"), index=True)
     account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
     acquired_at: Mapped[datetime] = mapped_column(DateTime, index=True)
@@ -133,6 +158,7 @@ class Lot(Base):
     is_carryforward: Mapped[bool] = mapped_column(Boolean, default=False)
     is_opening: Mapped[bool] = mapped_column(Boolean, default=False)  # manual opening position
 
+    taxpayer: Mapped["Taxpayer"] = relationship()
     asset: Mapped[Asset] = relationship()
 
 
@@ -142,6 +168,7 @@ class Disposal(Base):
     __tablename__ = "disposals"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    taxpayer_id: Mapped[int] = mapped_column(ForeignKey("taxpayers.id"), index=True)
     tx_id: Mapped[int | None] = mapped_column(ForeignKey("transactions.id"), nullable=True)
     asset_id: Mapped[int] = mapped_column(ForeignKey("assets.id"), index=True)
     disposed_at: Mapped[datetime] = mapped_column(DateTime, index=True)
@@ -152,6 +179,7 @@ class Disposal(Base):
     fiscal_year: Mapped[int] = mapped_column(Integer, index=True)
     disposal_kind: Mapped[DisposalKind] = mapped_column(String(16))
 
+    taxpayer: Mapped["Taxpayer"] = relationship()
     asset: Mapped[Asset] = relationship()
     consumptions: Mapped[list["LotConsumption"]] = relationship(
         back_populates="disposal", cascade="all, delete-orphan"
@@ -184,6 +212,7 @@ class IncomeEvent(Base):
     __tablename__ = "income_events"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    taxpayer_id: Mapped[int] = mapped_column(ForeignKey("taxpayers.id"), index=True)
     tx_id: Mapped[int | None] = mapped_column(ForeignKey("transactions.id"), nullable=True)
     asset_id: Mapped[int] = mapped_column(ForeignKey("assets.id"), index=True)
     received_at: Mapped[datetime] = mapped_column(DateTime, index=True)
@@ -192,25 +221,37 @@ class IncomeEvent(Base):
     category: Mapped[IncomeCategory] = mapped_column(String(16))
     fiscal_year: Mapped[int] = mapped_column(Integer, index=True)
 
+    taxpayer: Mapped["Taxpayer"] = relationship()
     asset: Mapped[Asset] = relationship()
 
 
 class FiscalYear(Base):
     __tablename__ = "fiscal_years"
+    __table_args__ = (
+        UniqueConstraint("taxpayer_id", "year", name="uq_fiscal_year_taxpayer_year"),
+    )
 
-    year: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    taxpayer_id: Mapped[int] = mapped_column(ForeignKey("taxpayers.id"), index=True)
+    year: Mapped[int] = mapped_column(Integer, index=True)
     status: Mapped[FiscalYearStatus] = mapped_column(String(16), default=FiscalYearStatus.OPEN)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     notes: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
+    taxpayer: Mapped["Taxpayer"] = relationship()
 
 
 class FiscalYearSummary(Base):
     """Immutable snapshot of a year's fiscal result (computed or manually loaded)."""
 
     __tablename__ = "fiscal_year_summaries"
+    __table_args__ = (
+        UniqueConstraint("taxpayer_id", "year", name="uq_summary_taxpayer_year"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    year: Mapped[int] = mapped_column(Integer, unique=True, index=True)
+    taxpayer_id: Mapped[int] = mapped_column(ForeignKey("taxpayers.id"), index=True)
+    year: Mapped[int] = mapped_column(Integer, index=True)
     net_gain_eur: Mapped[Decimal] = mapped_column(DecimalText, default=Decimal("0"))
     total_gains: Mapped[Decimal] = mapped_column(DecimalText, default=Decimal("0"))
     total_losses: Mapped[Decimal] = mapped_column(DecimalText, default=Decimal("0"))
@@ -220,6 +261,32 @@ class FiscalYearSummary(Base):
     source: Mapped[SummarySource] = mapped_column(String(16), default=SummarySource.COMPUTED)
     detail_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    taxpayer: Mapped["Taxpayer"] = relationship()
+
+
+class ReviewItem(Base):
+    """A warning or review task generated by connectors, the FIFO engine or reports."""
+
+    __tablename__ = "review_items"
+    __table_args__ = (
+        UniqueConstraint("transaction_id", "category", name="uq_review_tx_category"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    transaction_id: Mapped[int | None] = mapped_column(ForeignKey("transactions.id"), index=True, nullable=True)
+    taxpayer_id: Mapped[int] = mapped_column(ForeignKey("taxpayers.id"), index=True)
+    category: Mapped[ReviewCategory] = mapped_column(String(32), index=True)
+    severity: Mapped[ReviewSeverity] = mapped_column(String(16), default=ReviewSeverity.WARNING)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[ReviewStatus] = mapped_column(String(16), default=ReviewStatus.PENDING, index=True)
+    resolution_action: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    resolution_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    transaction: Mapped["Transaction"] = relationship(foreign_keys=[transaction_id])
+    taxpayer: Mapped["Taxpayer"] = relationship()
 
 
 class TaxBracket(Base):

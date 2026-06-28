@@ -21,6 +21,7 @@ from app.models import (
     IncomeEvent,
     SummarySource,
     TaxBracket,
+    Taxpayer,
     Transaction,
     TransactionType,
 )
@@ -45,9 +46,25 @@ def get_brackets(db: Session, year: int) -> list[tuple[Decimal, Decimal | None, 
     return [(r.from_eur, r.to_eur, r.rate) for r in rows]
 
 
-def compute_year(db: Session, year: int) -> TaxResult:
-    gains = list(db.scalars(select(Disposal.gain_loss_eur).where(Disposal.fiscal_year == year)))
-    incomes = list(db.scalars(select(IncomeEvent).where(IncomeEvent.fiscal_year == year)))
+def _default_taxpayer_id(db: Session) -> int:
+    taxpayer = db.scalar(select(Taxpayer).order_by(Taxpayer.id))
+    if taxpayer is None:
+        taxpayer = Taxpayer(name="Principal")
+        db.add(taxpayer)
+        db.commit()
+        db.refresh(taxpayer)
+    return taxpayer.id
+
+
+def compute_year(db: Session, year: int, taxpayer_ids: list[int] | None = None) -> TaxResult:
+    q_disposals = select(Disposal.gain_loss_eur).where(Disposal.fiscal_year == year)
+    q_incomes = select(IncomeEvent).where(IncomeEvent.fiscal_year == year)
+    if taxpayer_ids:
+        q_disposals = q_disposals.where(Disposal.taxpayer_id.in_(taxpayer_ids))
+        q_incomes = q_incomes.where(IncomeEvent.taxpayer_id.in_(taxpayer_ids))
+
+    gains = list(db.scalars(q_disposals))
+    incomes = list(db.scalars(q_incomes))
     rcm = sum((i.eur_value for i in incomes if i.category == IncomeCategory.RCM), ZERO)
     ganancia = sum((i.eur_value for i in incomes if i.category == IncomeCategory.GANANCIA), ZERO)
     actividad = sum((i.eur_value for i in incomes if i.category == IncomeCategory.ACTIVIDAD), ZERO)
@@ -57,8 +74,9 @@ def compute_year(db: Session, year: int) -> TaxResult:
     )
 
 
-def _result_to_summary(year: int, r: TaxResult, source: SummarySource) -> dict:
+def _result_to_summary(taxpayer_id: int, year: int, r: TaxResult, source: SummarySource) -> dict:
     return dict(
+        taxpayer_id=taxpayer_id,
         year=year,
         net_gain_eur=r.net_capital_gain,
         total_gains=r.total_gains,
@@ -83,7 +101,12 @@ def _result_to_summary(year: int, r: TaxResult, source: SummarySource) -> dict:
 
 
 def _upsert_summary(db: Session, data: dict) -> FiscalYearSummary:
-    existing = db.scalar(select(FiscalYearSummary).where(FiscalYearSummary.year == data["year"]))
+    existing = db.scalar(
+        select(FiscalYearSummary).where(
+            FiscalYearSummary.taxpayer_id == data["taxpayer_id"],
+            FiscalYearSummary.year == data["year"],
+        )
+    )
     if existing:
         for k, v in data.items():
             setattr(existing, k, v)
@@ -95,11 +118,26 @@ def _upsert_summary(db: Session, data: dict) -> FiscalYearSummary:
     return s
 
 
-def close_year(db: Session, year: int) -> FiscalYearSummary:
-    """Freeze the computed result and lock the year against further edits."""
-    result = compute_year(db, year)
-    summary = _upsert_summary(db, _result_to_summary(year, result, SummarySource.COMPUTED))
-    fy = db.get(FiscalYear, year) or FiscalYear(year=year)
+def _get_or_create_fiscal_year(db: Session, taxpayer_id: int, year: int) -> FiscalYear:
+    fy = db.scalar(
+        select(FiscalYear).where(
+            FiscalYear.taxpayer_id == taxpayer_id, FiscalYear.year == year
+        )
+    )
+    if fy is None:
+        fy = FiscalYear(taxpayer_id=taxpayer_id, year=year, status=FiscalYearStatus.OPEN)
+        db.add(fy)
+        db.flush()
+    return fy
+
+
+def close_year(db: Session, year: int, taxpayer_id: int) -> FiscalYearSummary:
+    """Freeze the computed result for one taxpayer and lock their year."""
+    result = compute_year(db, year, [taxpayer_id])
+    summary = _upsert_summary(
+        db, _result_to_summary(taxpayer_id, year, result, SummarySource.COMPUTED)
+    )
+    fy = _get_or_create_fiscal_year(db, taxpayer_id, year)
     fy.status = FiscalYearStatus.CLOSED
     fy.closed_at = datetime.utcnow()
     db.add(fy)
@@ -107,8 +145,12 @@ def close_year(db: Session, year: int) -> FiscalYearSummary:
     return summary
 
 
-def reopen_year(db: Session, year: int) -> FiscalYear:
-    fy = db.get(FiscalYear, year)
+def reopen_year(db: Session, year: int, taxpayer_id: int) -> FiscalYear:
+    fy = db.scalar(
+        select(FiscalYear).where(
+            FiscalYear.taxpayer_id == taxpayer_id, FiscalYear.year == year
+        )
+    )
     if fy:
         fy.status = FiscalYearStatus.OPEN
         fy.closed_at = None
@@ -117,17 +159,18 @@ def reopen_year(db: Session, year: int) -> FiscalYear:
 
 
 def load_manual_summary(
-    db: Session, *, year: int, net_gain_eur: Decimal, income_total: Decimal,
+    db: Session, *, taxpayer_id: int, year: int, net_gain_eur: Decimal, income_total: Decimal,
     savings_base: Decimal, tax_due_eur: Decimal,
 ) -> FiscalYearSummary:
     """Load a summary for a past year for which detailed transactions are absent."""
     data = dict(
+        taxpayer_id=taxpayer_id,
         year=year, net_gain_eur=net_gain_eur, total_gains=net_gain_eur, total_losses=ZERO,
         income_total=income_total, savings_base=savings_base, tax_due_eur=tax_due_eur,
         source=SummarySource.MANUAL_SUMMARY, detail_json=None,
     )
     summary = _upsert_summary(db, data)
-    fy = db.get(FiscalYear, year) or FiscalYear(year=year)
+    fy = _get_or_create_fiscal_year(db, taxpayer_id, year)
     fy.status = FiscalYearStatus.CLOSED
     fy.closed_at = datetime.utcnow()
     db.add(fy)
@@ -135,28 +178,37 @@ def load_manual_summary(
     return summary
 
 
-def _opening_account(db: Session) -> Account:
-    acc = db.scalar(select(Account).where(Account.name == "Apertura"))
+def _opening_account(db: Session, taxpayer_id: int) -> Account:
+    acc = db.scalar(
+        select(Account).where(
+            Account.taxpayer_id == taxpayer_id, Account.name == "Apertura"
+        )
+    )
     if acc is None:
-        acc = Account(name="Apertura", platform=AccountPlatform.MANUAL)
+        acc = Account(
+            name="Apertura", taxpayer_id=taxpayer_id, platform=AccountPlatform.MANUAL
+        )
         db.add(acc)
         db.commit()
+        db.refresh(acc)
     return acc
 
 
 def add_opening_position(
-    db: Session, *, asset_symbol: str, quantity: Decimal, cost_basis_eur: Decimal, acquired_at: datetime
+    db: Session, *, taxpayer_id: int, asset_symbol: str, quantity: Decimal,
+    cost_basis_eur: Decimal, acquired_at: datetime
 ) -> Transaction:
     """Register an opening lot (a DEPOSIT carrying its EUR cost basis) and recompute."""
     asset = db.scalar(select(Asset).where(Asset.symbol == asset_symbol.upper()))
     if asset is None:
         raise ValueError(f"Activo desconocido: {asset_symbol}")
-    acc = _opening_account(db)
+    acc = _opening_account(db, taxpayer_id)
     tx = Transaction(
+        taxpayer_id=taxpayer_id,
         account_id=acc.id, timestamp=acquired_at, type=TransactionType.DEPOSIT,
         asset_in_id=asset.id, amount_in=quantity, eur_value=cost_basis_eur,
         price_source="opening", fiscal_year=acquired_at.year, notes="Posición de apertura",
-        external_id=f"opening-{asset.symbol}-{acquired_at.date()}",
+        external_id=f"opening-{taxpayer_id}-{asset.symbol}-{acquired_at.date()}",
     )
     db.add(tx)
     db.commit()

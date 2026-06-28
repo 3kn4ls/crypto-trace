@@ -111,6 +111,17 @@ def build_ledger(transactions: list[Transaction]) -> tuple[list[LedgerMove], lis
             if tx.asset_in_id and not _is_fiat(tx.asset_in) and tx.eur_value:
                 moves.append(LedgerMove(seq, tx.timestamp, tx.asset_in_id, MoveType.ACQUIRE,
                                         to_decimal(tx.amount_in), to_decimal(tx.eur_value), tx.id))
+        elif t == TransactionType.REVERSAL:
+            # Clawback of a previously credited reward: remove the units with no
+            # gain/loss and back out the income it had generated (assumed RCM,
+            # matching cashback/referral). See docs/SUGGESTIONS.md.
+            if tx.asset_out_id and not _is_fiat(tx.asset_out) and tx.amount_out:
+                qty = to_decimal(tx.amount_out)
+                moves.append(LedgerMove(seq, tx.timestamp, tx.asset_out_id,
+                                        MoveType.REMOVE, qty, ZERO, tx.id))
+                fmv = to_decimal(tx.eur_value)
+                incomes.append(IncomeSpec(tx.id, tx.asset_out_id, tx.timestamp,
+                                          -qty, -fmv, IncomeCategory.RCM, tx.fiscal_year))
         # WITHDRAWAL / TRANSFER / FEE: internal or embedded -> no move.
 
     return moves, incomes

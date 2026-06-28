@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.models import Disposal, IncomeEvent, Lot, LotConsumption, Transaction
 from app.services.fifo_engine import run_fifo
 from app.services.ledger import build_ledger
+from app.services.review_service import generate_fifo_items, generate_manual_items
 
 
 def recompute_all(db: Session) -> dict:
@@ -31,9 +32,13 @@ def recompute_all(db: Session) -> dict:
     moves, incomes = build_ledger(txs)
     result = run_fifo(moves)
 
+    # Build a lookup from transaction id to its taxpayer for derived rows.
+    tx_taxpayer: dict[int | None, int] = {tx.id: tx.taxpayer_id for tx in txs}
+
     keymap: dict[int, int] = {}
     for el in result.lots:
         lot = Lot(
+            taxpayer_id=tx_taxpayer.get(el.source_ref, 1),
             asset_id=el.asset_id,
             account_id=None,
             acquired_at=el.acquired_at,
@@ -49,6 +54,7 @@ def recompute_all(db: Session) -> dict:
 
     for ed in result.disposals:
         disp = Disposal(
+            taxpayer_id=tx_taxpayer.get(ed.ref, 1),
             tx_id=ed.ref,
             asset_id=ed.asset_id,
             disposed_at=ed.disposed_at,
@@ -79,6 +85,7 @@ def recompute_all(db: Session) -> dict:
     for inc in incomes:
         db.add(
             IncomeEvent(
+                taxpayer_id=tx_taxpayer.get(inc.ref, 1),
                 tx_id=inc.ref,
                 asset_id=inc.asset_id,
                 received_at=inc.received_at,
@@ -90,9 +97,14 @@ def recompute_all(db: Session) -> dict:
         )
 
     db.commit()
+
+    # Ensure review items exist for manual connector notes and FIFO warnings.
+    generate_manual_items(db)
+    generate_fifo_items(db, result.warnings)
+
     return {
         "lots": len(result.lots),
         "disposals": len(result.disposals),
         "income_events": len(incomes),
-        "warnings": result.warnings,
+        "warnings": len(result.warnings),
     }

@@ -7,6 +7,9 @@ from app.models.enums import (
     FiscalYearStatus,
     ImportStatus,
     IncomeCategory,
+    ReviewCategory,
+    ReviewSeverity,
+    ReviewStatus,
     SummarySource,
     TransactionType,
 )
@@ -21,7 +24,9 @@ from app.models.orm import (
     Lot,
     LotConsumption,
     PriceQuote,
+    ReviewItem,
     TaxBracket,
+    Taxpayer,
     Transaction,
 )
 
@@ -43,8 +48,13 @@ __all__ = [
     "Lot",
     "LotConsumption",
     "PriceQuote",
+    "ReviewCategory",
+    "ReviewItem",
+    "ReviewSeverity",
+    "ReviewStatus",
     "SummarySource",
     "TaxBracket",
+    "Taxpayer",
     "Transaction",
     "TransactionType",
 ]

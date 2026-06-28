@@ -1,11 +1,15 @@
-"""Idempotent seeding of reference data (assets and default tax brackets)."""
+"""Idempotent seeding of reference data (taxpayers, assets and default tax brackets)."""
 from __future__ import annotations
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Asset, AssetKind, TaxBracket
+from app.models import Asset, AssetKind, TaxBracket, Taxpayer
 from app.tax.brackets import DEFAULT_BRACKETS
+
+
+_DEFAULT_TAXPAYER_NAME = "Principal"
+
 
 # symbol, name, kind, coingecko_id, decimals
 _DEFAULT_ASSETS = [
@@ -20,6 +24,17 @@ _DEFAULT_ASSETS = [
     ("DOGE", "Dogecoin", AssetKind.CRYPTO, "dogecoin", 8),
     ("XRP", "XRP", AssetKind.CRYPTO, "ripple", 6),
 ]
+
+
+def seed_taxpayer(db: Session) -> Taxpayer:
+    """Return the default taxpayer, creating it if necessary."""
+    taxpayer = db.scalar(select(Taxpayer).where(Taxpayer.name == _DEFAULT_TAXPAYER_NAME))
+    if taxpayer is None:
+        taxpayer = Taxpayer(name=_DEFAULT_TAXPAYER_NAME)
+        db.add(taxpayer)
+        db.commit()
+        db.refresh(taxpayer)
+    return taxpayer
 
 
 def seed_assets(db: Session) -> int:
@@ -48,4 +63,5 @@ def seed_tax_brackets(db: Session) -> int:
 
 
 def seed_all(db: Session) -> dict[str, int]:
-    return {"assets": seed_assets(db), "tax_brackets": seed_tax_brackets(db)}
+    seed_taxpayer(db)
+    return {"assets": seed_assets(db), "tax_brackets": seed_tax_brackets(db), "taxpayers": 1}

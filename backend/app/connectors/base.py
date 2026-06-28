@@ -7,6 +7,8 @@ and the type-translation table — no code change. Subclasses override
 """
 from __future__ import annotations
 
+import csv
+import io
 from abc import ABC
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -74,17 +76,14 @@ class BaseConnector(ABC):
 
     # --- public API ---------------------------------------------------------
     def parse(self, file: str | Path | BinaryIO) -> ParseResult:
-        sheet_ref = self.mapping.get("sheet", 0)
         header_row = int(self.mapping.get("header_row", 1))
-        wb = load_workbook(file, read_only=True, data_only=True)
-        ws = wb.worksheets[sheet_ref] if isinstance(sheet_ref, int) else wb[sheet_ref]
-
-        rows = list(ws.iter_rows(values_only=True))
+        rows = self._load_rows(file)
         if len(rows) < header_row:
             return ParseResult()
         headers = [str(h).strip() if h is not None else "" for h in rows[header_row - 1]]
         index = {h: i for i, h in enumerate(headers)}
 
+        self._begin_parse()
         result = ParseResult()
         for n, row in enumerate(rows[header_row:], start=header_row + 1):
             raw = {h: row[i] if i < len(row) else None for h, i in index.items()}
@@ -96,10 +95,53 @@ class BaseConnector(ABC):
                     result.transactions.append(tx)
             except Exception as exc:  # noqa: BLE001 - report per row, keep going
                 result.errors.append(RowError(row=n, message=str(exc), raw=raw))
-        wb.close()
         return result
 
+    # --- row loading (CSV or XLSX, auto-detected) --------------------------
+    def _load_rows(self, file: str | Path | BinaryIO) -> list[tuple[Any, ...]]:
+        """Return raw rows (incl. header) from an XLSX or CSV export.
+
+        The export format is auto-detected by content (XLSX files are ZIP
+        archives starting with ``PK\\x03\\x04``); everything else is read as
+        delimited text. This lets the same connector ingest either format.
+        """
+        data = self._read_bytes(file)
+        if data[:4] == b"PK\x03\x04":
+            return self._load_xlsx(data)
+        return self._load_csv(data)
+
+    @staticmethod
+    def _read_bytes(file: str | Path | BinaryIO) -> bytes:
+        if isinstance(file, (str, Path)):
+            return Path(file).read_bytes()
+        pos = file.tell() if hasattr(file, "tell") else None
+        data = file.read()
+        if pos is not None and hasattr(file, "seek"):
+            file.seek(pos)
+        return data if isinstance(data, bytes) else str(data).encode("utf-8")
+
+    def _load_xlsx(self, data: bytes) -> list[tuple[Any, ...]]:
+        sheet_ref = self.mapping.get("sheet", 0)
+        wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+        ws = wb.worksheets[sheet_ref] if isinstance(sheet_ref, int) else wb[sheet_ref]
+        rows = list(ws.iter_rows(values_only=True))
+        wb.close()
+        return rows
+
+    def _load_csv(self, data: bytes) -> list[tuple[Any, ...]]:
+        text = data.decode("utf-8-sig", errors="replace")
+        delimiter = self.mapping.get("delimiter", ",")
+        reader = csv.reader(io.StringIO(text), delimiter=delimiter)
+        return [tuple(row) for row in reader]
+
     # --- overridable normalisation -----------------------------------------
+    def _begin_parse(self) -> None:
+        """Hook called once per :meth:`parse`, before rows are processed.
+
+        Subclasses that keep per-file state (e.g. a counter to disambiguate
+        otherwise-identical rows when building synthetic ids) reset it here.
+        """
+
     def normalize_row(self, raw: dict[str, Any], row_no: int) -> CanonicalTransaction | None:
         """Default mapping-driven normalisation. Override for quirks."""
         cols = self.mapping["columns"]
@@ -137,6 +179,7 @@ class BaseConnector(ABC):
         give_amount: Decimal | None = None,
         fee_asset: str | None = None,
         fee_amount: Decimal | None = None,
+        notes: str | None = None,
     ) -> CanonicalTransaction:
         """Assemble a canonical transaction from a received/given leg pair."""
         return CanonicalTransaction(
@@ -151,6 +194,7 @@ class BaseConnector(ABC):
             fee_amount=fee_amount,
             eur_value=eur_value,
             price_source=self.name,
+            notes=notes,
             raw=raw,
         )
 
@@ -190,13 +234,19 @@ class BaseConnector(ABC):
         return str(value).strip().upper()
 
     def _dec(self, value: Any) -> Decimal | None:
+        signed = self._signed_dec(value)
+        return abs(signed) if signed is not None else None  # sign implied by direction
+
+    def _signed_dec(self, value: Any) -> Decimal | None:
+        """Like :meth:`_dec` but keeps the sign (some exports encode direction
+        as the sign of the amount, e.g. a negative ``Amount`` = outflow)."""
         if value is None or value == "":
             return None
         sep = self.mapping.get("decimal_sep", ".")
         text = str(value).strip()
         if sep == ",":
             text = text.replace(".", "").replace(",", ".")
-        return abs(to_decimal(text))  # sign is implied by in/out direction
+        return to_decimal(text)
 
     def _parse_dt(self, value: Any) -> datetime:
         if isinstance(value, datetime):

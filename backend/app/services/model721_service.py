@@ -21,10 +21,13 @@ from app.services.reporting_service import account_balances
 THRESHOLD_EUR = Decimal("50000")
 
 
-def compute(db: Session, year: int) -> dict:
+def compute(db: Session, year: int, taxpayer_ids: list[int] | None = None) -> dict:
     as_of = date(year, 12, 31)
-    balances = account_balances(db, as_of=as_of)
-    accounts = {a.id: a for a in db.scalars(select(Account))}
+    balances = account_balances(db, taxpayer_ids=taxpayer_ids, as_of=as_of)
+    q_accounts = select(Account)
+    if taxpayer_ids:
+        q_accounts = q_accounts.where(Account.taxpayer_id.in_(taxpayer_ids))
+    accounts = {a.id: a for a in db.scalars(q_accounts)}
 
     holdings: list[dict] = []
     warnings: list[str] = []
@@ -45,6 +48,7 @@ def compute(db: Session, year: int) -> dict:
         if is_abroad and value is not None:
             total_abroad += value
         holdings.append({
+            "account_id": account_id,
             "account": account.name if account else str(account_id),
             "is_abroad": is_abroad,
             "asset": asset.symbol,

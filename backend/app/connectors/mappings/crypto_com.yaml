@@ -18,21 +18,40 @@ columns:
   external_id: "Transaction Hash"
 
 # Crypto.com "Transaction Kind" -> canonical TransactionType.
+# Income classification (RCM vs ganancia) lives in services/ledger.py and is
+# configurable; see docs/SUGGESTIONS.md for the open fiscal questions.
 type_map:
+  # --- Acquisitions with fiat -------------------------------------------------
   viban_purchase: BUY
   crypto_purchase: BUY
   recurring_buy_order: BUY
+  # --- Disposals to fiat ------------------------------------------------------
   crypto_viban_exchange: SELL
   viban_card_top_up: SELL
+  # --- Crypto <-> crypto (permuta) -------------------------------------------
   crypto_exchange: SWAP
   dust_conversion_credited: SWAP
+  # --- External wallet transfers (own funds) ---------------------------------
   crypto_withdrawal: WITHDRAWAL
   crypto_deposit: DEPOSIT
+  # --- Staking / Earn income (RCM) -------------------------------------------
   crypto_earn_interest_paid: STAKING_REWARD
   crypto_earn_reward: STAKING_REWARD
   mco_stake_reward: STAKING_REWARD
-  supercharger_reward_to_app_credited: STAKING_REWARD
-  rewards_platform_deposit_credited: STAKING_REWARD
-  referral_card_cashback: REFERRAL
-  referral_bonus: REFERRAL
+  supercharger_reward_to_app_credited: STAKING_REWARD     # CRO Pool Rewards
+  finance.dpos.non_compound_interest.crypto_wallet: STAKING_REWARD  # DPoS interest
+  # --- Rewards / bonuses / cashback (income) ---------------------------------
+  referral_card_cashback: REFERRAL                        # Card Cashback
+  referral_bonus: REFERRAL                                # Referral / Welcome
+  rewards_platform_deposit_credited: REFERRAL             # Mystery Box / Welcome Bonus
   airdrop_to_exchange_transfer: AIRDROP
+  # --- Reward clawback (negative income + remove units) ----------------------
+  card_cashback_reverted: REVERSAL                        # Card Cashback Reversal
+  # --- Internal moves: supercharger / staking lock (no fiscal effect) ---------
+  supercharger_deposit: TRANSFER
+  supercharger_withdrawal: TRANSFER
+  finance.lockup.dpos_lock.crypto_wallet: TRANSFER        # Cardholder CRO Stake
+  finance.dpos.staking.crypto_wallet: TRANSFER            # DPoS staking payment
+  # --- P2P transfers (flagged for manual review) -----------------------------
+  transfer.p2p_transfer.crypto_wallet.crypto_wallet.credit: TRANSFER
+  transfer.p2p_transfer.crypto_wallet.crypto_wallet.debit: TRANSFER

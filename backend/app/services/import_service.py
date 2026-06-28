@@ -37,26 +37,28 @@ def _get_or_create_asset(db: Session, cache: dict[str, Asset], symbol: str | Non
     return asset
 
 
-def _ensure_fiscal_year(db: Session, cache: dict[int, FiscalYear], year: int) -> FiscalYear:
-    if year in cache:
-        return cache[year]
-    fy = db.get(FiscalYear, year)
+def _ensure_fiscal_year(db: Session, cache: dict[tuple[int, int], FiscalYear], taxpayer_id: int, year: int) -> FiscalYear:
+    key = (taxpayer_id, year)
+    if key in cache:
+        return cache[key]
+    fy = db.scalar(select(FiscalYear).where(FiscalYear.taxpayer_id == taxpayer_id, FiscalYear.year == year))
     if fy is None:
-        fy = FiscalYear(year=year, status=FiscalYearStatus.OPEN)
+        fy = FiscalYear(taxpayer_id=taxpayer_id, year=year, status=FiscalYearStatus.OPEN)
         db.add(fy)
         db.flush()
-    cache[year] = fy
+    cache[key] = fy
     return fy
 
 
 def import_excel(
-    db: Session, *, connector_name: str, account_id: int, filename: str, content: bytes
+    db: Session, *, connector_name: str, taxpayer_id: int, account_id: int, filename: str, content: bytes
 ) -> ImportBatch:
     connector = get_connector(connector_name)
     file_hash = hashlib.sha256(content).hexdigest()
     parsed = connector.parse(BytesIO(content))
 
     batch = ImportBatch(
+        taxpayer_id=taxpayer_id,
         connector=connector_name,
         filename=filename,
         file_hash=file_hash,
@@ -83,14 +85,14 @@ def import_excel(
     for ct in parsed.transactions:
         try:
             year = ct.timestamp.year
-            fy = _ensure_fiscal_year(db, fy_cache, year)
+            fy = _ensure_fiscal_year(db, fy_cache, taxpayer_id, year)
             if fy.status == FiscalYearStatus.CLOSED:
                 errors.append({"row": 0, "message": f"Año {year} cerrado: {ct.external_id} omitida"})
                 continue
             if ct.external_id and ct.external_id in seen:
                 duplicate += 1
                 continue
-            db.add(_to_orm(db, asset_cache, ct, account_id, batch.id, year))
+            db.add(_to_orm(db, asset_cache, ct, taxpayer_id, account_id, batch.id, connector_name, year))
             if ct.external_id:
                 seen.add(ct.external_id)
             inserted += 1
@@ -117,14 +119,17 @@ def _to_orm(
     db: Session,
     asset_cache: dict[str, Asset],
     ct: CanonicalTransaction,
+    taxpayer_id: int,
     account_id: int,
     batch_id: int,
+    source: str,
     year: int,
 ) -> Transaction:
     asset_in = _get_or_create_asset(db, asset_cache, ct.asset_in)
     asset_out = _get_or_create_asset(db, asset_cache, ct.asset_out)
     fee_asset = _get_or_create_asset(db, asset_cache, ct.fee_asset)
     return Transaction(
+        taxpayer_id=taxpayer_id,
         account_id=account_id,
         timestamp=ct.timestamp,
         type=ct.type,
@@ -138,6 +143,7 @@ def _to_orm(
         price_source=ct.price_source,
         external_id=ct.external_id,
         import_batch_id=batch_id,
+        source=source,
         raw_json=json.dumps(ct.raw, ensure_ascii=False, default=str) if ct.raw else None,
         fiscal_year=year,
         notes=ct.notes,

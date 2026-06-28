@@ -25,6 +25,7 @@ from app.models.enums import DisposalKind
 class MoveType(str, Enum):
     ACQUIRE = "ACQUIRE"
     DISPOSE = "DISPOSE"
+    REMOVE = "REMOVE"  # take units off the books with no gain/loss (reward clawback)
 
 
 @dataclass
@@ -82,10 +83,21 @@ class EngineDisposal:
 
 
 @dataclass
+class EngineWarning:
+    category: str
+    asset_id: int
+    ref: int | None
+    timestamp: datetime
+    message: str
+    severity: str = "WARNING"
+    quantity: Decimal | None = None
+
+
+@dataclass
 class EngineResult:
     lots: list[EngineLot]
     disposals: list[EngineDisposal]
-    warnings: list[str]
+    warnings: list[EngineWarning]
 
 
 def run_fifo(moves: list[LedgerMove]) -> EngineResult:
@@ -95,7 +107,7 @@ def run_fifo(moves: list[LedgerMove]) -> EngineResult:
     queues: dict[int, deque[EngineLot]] = defaultdict(deque)
     lots: list[EngineLot] = []
     disposals: list[EngineDisposal] = []
-    warnings: list[str] = []
+    warnings: list[EngineWarning] = []
     next_key = 0
 
     for mv in ordered:
@@ -115,6 +127,8 @@ def run_fifo(moves: list[LedgerMove]) -> EngineResult:
             next_key += 1
             queues[mv.asset_id].append(lot)
             lots.append(lot)
+        elif mv.move == MoveType.REMOVE:
+            _remove(mv, queues[mv.asset_id], warnings)
         else:  # DISPOSE
             disposals.append(
                 _consume(mv, queues[mv.asset_id], warnings)
@@ -123,8 +137,39 @@ def run_fifo(moves: list[LedgerMove]) -> EngineResult:
     return EngineResult(lots=lots, disposals=disposals, warnings=warnings)
 
 
+def _remove(mv: LedgerMove, queue: deque[EngineLot], warnings: list[EngineWarning]) -> None:
+    """Drop ``mv.quantity`` units off the FIFO queue without a taxable disposal.
+
+    Used to undo a previously credited reward (e.g. a card-cashback reversal):
+    the units leave the books but generate no gain/loss. The matching income is
+    reversed separately by the tax layer.
+    """
+    remaining = mv.quantity
+    while remaining > ZERO and queue and queue[0].qty_remaining > ZERO:
+        lot = queue[0]
+        take = min(lot.qty_remaining, remaining)
+        lot.qty_remaining -= take
+        remaining -= take
+        if lot.qty_remaining <= ZERO:
+            queue.popleft()
+    if remaining > ZERO:
+        warnings.append(
+            EngineWarning(
+                category="REVERSAL_SHORTFALL",
+                asset_id=mv.asset_id,
+                ref=mv.ref,
+                timestamp=mv.timestamp,
+                message=(
+                    f"Reversión sin saldo suficiente para asset_id={mv.asset_id} en "
+                    f"{mv.timestamp:%Y-%m-%d}: faltan {remaining} unidades por retirar."
+                ),
+                quantity=remaining,
+            )
+        )
+
+
 def _consume(
-    mv: LedgerMove, queue: deque[EngineLot], warnings: list[str]
+    mv: LedgerMove, queue: deque[EngineLot], warnings: list[EngineWarning]
 ) -> EngineDisposal:
     qty_to_dispose = mv.quantity
     total_proceeds = mv.eur
@@ -184,8 +229,17 @@ def _consume(
         )
         allocated_proceeds += proceeds_portion
         warnings.append(
-            f"Saldo insuficiente para asset_id={mv.asset_id} en {mv.timestamp:%Y-%m-%d}: "
-            f"se enajenan {remaining} unidades sin coste de adquisición registrado (base=0)."
+            EngineWarning(
+                category="INSUFFICIENT_BALANCE",
+                asset_id=mv.asset_id,
+                ref=mv.ref,
+                timestamp=mv.timestamp,
+                message=(
+                    f"Saldo insuficiente para asset_id={mv.asset_id} en {mv.timestamp:%Y-%m-%d}: "
+                    f"se enajenan {remaining} unidades sin coste de adquisición registrado (base=0)."
+                ),
+                quantity=remaining,
+            )
         )
 
     # Absorb any cent-level rounding remainder into the last consumption so the

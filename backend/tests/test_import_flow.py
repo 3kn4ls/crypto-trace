@@ -7,7 +7,7 @@ from io import BytesIO
 from openpyxl import Workbook
 from sqlalchemy import func, select
 
-from app.models import Account, AccountPlatform, Disposal, IncomeEvent, Lot, Transaction
+from app.models import Account, AccountPlatform, Disposal, IncomeEvent, Lot, Taxpayer, Transaction
 from app.services.import_service import import_excel
 
 HEADERS = [
@@ -34,17 +34,29 @@ def _build_xlsx() -> bytes:
     return buf.getvalue()
 
 
-def _account(db) -> Account:
-    acc = Account(name="Crypto.com", platform=AccountPlatform.CRYPTO_COM, is_abroad=True)
+def _account(db, taxpayer_id: int) -> Account:
+    acc = Account(
+        name="Crypto.com", taxpayer_id=taxpayer_id,
+        platform=AccountPlatform.CRYPTO_COM, is_abroad=True,
+    )
     db.add(acc)
     db.commit()
     return acc
 
 
+def _taxpayer(db) -> Taxpayer:
+    taxpayer = Taxpayer(name="Import Test", tax_id="11111111H")
+    db.add(taxpayer)
+    db.commit()
+    db.refresh(taxpayer)
+    return taxpayer
+
+
 def test_import_creates_transactions_and_fifo(db):
-    acc = _account(db)
+    taxpayer = _taxpayer(db)
+    acc = _account(db, taxpayer.id)
     batch = import_excel(
-        db, connector_name="CRYPTO_COM", account_id=acc.id,
+        db, connector_name="CRYPTO_COM", taxpayer_id=taxpayer.id, account_id=acc.id,
         filename="cdc.xlsx", content=_build_xlsx(),
     )
     assert batch.inserted_count == 5
@@ -63,13 +75,21 @@ def test_import_creates_transactions_and_fifo(db):
     incomes = list(db.scalars(select(IncomeEvent)))
     assert len(incomes) == 1
     assert incomes[0].eur_value == Decimal("300")
+    assert incomes[0].taxpayer_id == taxpayer.id
 
 
 def test_reimport_is_idempotent(db):
-    acc = _account(db)
+    taxpayer = _taxpayer(db)
+    acc = _account(db, taxpayer.id)
     content = _build_xlsx()
-    import_excel(db, connector_name="CRYPTO_COM", account_id=acc.id, filename="cdc.xlsx", content=content)
-    batch2 = import_excel(db, connector_name="CRYPTO_COM", account_id=acc.id, filename="cdc.xlsx", content=content)
+    import_excel(
+        db, connector_name="CRYPTO_COM", taxpayer_id=taxpayer.id,
+        account_id=acc.id, filename="cdc.xlsx", content=content,
+    )
+    batch2 = import_excel(
+        db, connector_name="CRYPTO_COM", taxpayer_id=taxpayer.id,
+        account_id=acc.id, filename="cdc.xlsx", content=content,
+    )
     assert batch2.inserted_count == 0
     assert batch2.duplicate_count == 5
     assert db.scalar(select(func.count()).select_from(Transaction)) == 5

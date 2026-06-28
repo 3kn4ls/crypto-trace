@@ -39,6 +39,7 @@ class TaxResult:
     total_losses: Decimal
     net_capital_gain: Decimal  # gains/losses group (incl. GANANCIA income)
     rcm_income: Decimal
+    ganancia_income: Decimal
     actividad_income: Decimal
     savings_base: Decimal
     tax_due: Decimal
@@ -114,6 +115,7 @@ def compute_tax(
         total_losses=quantize_eur(total_losses),
         net_capital_gain=quantize_eur(group_pl),
         rcm_income=quantize_eur(rcm_income),
+        ganancia_income=quantize_eur(ganancia_income),
         actividad_income=quantize_eur(actividad_income),
         savings_base=quantize_eur(savings_base),
         tax_due=quantize_eur(tax_due),

@@ -1,25 +1,43 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api";
+import { useTaxpayers } from "../TaxpayerContext";
 
 export default function ImportPage() {
   const qc = useQueryClient();
-  const connectors = useQuery({ queryKey: ["connectors"], queryFn: () => api.get("/connectors") });
-  const accounts = useQuery({ queryKey: ["accounts"], queryFn: () => api.get("/accounts") });
-  const batches = useQuery({ queryKey: ["batches"], queryFn: () => api.get("/imports") });
+  const { taxpayers, selectedIds } = useTaxpayers();
+  const defaultTaxpayerId = selectedIds[0] ?? "";
 
   const [connector, setConnector] = useState("");
+  const [importTaxpayerId, setImportTaxpayerId] = useState(String(defaultTaxpayerId));
   const [accountId, setAccountId] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [newAccount, setNewAccount] = useState("");
   const [abroad, setAbroad] = useState(true);
 
+  const connectors = useQuery({ queryKey: ["connectors"], queryFn: () => api.get("/connectors") });
+  const accounts = useQuery({
+    queryKey: ["accounts", importTaxpayerId],
+    queryFn: () => api.get(`/accounts?taxpayer_id=${importTaxpayerId}`),
+    enabled: !!importTaxpayerId,
+  });
+  const batches = useQuery({
+    queryKey: ["batches", importTaxpayerId],
+    queryFn: () => api.get(`/imports?taxpayer_id=${importTaxpayerId}`),
+    enabled: !!importTaxpayerId,
+  });
+
   const createAccount = useMutation({
     mutationFn: () =>
-      api.post("/accounts", { name: newAccount, platform: "MANUAL", is_abroad: abroad }),
+      api.post("/accounts", {
+        taxpayer_id: Number(importTaxpayerId),
+        name: newAccount,
+        platform: "MANUAL",
+        is_abroad: abroad,
+      }),
     onSuccess: () => {
       setNewAccount("");
-      qc.invalidateQueries({ queryKey: ["accounts"] });
+      qc.invalidateQueries({ queryKey: ["accounts", importTaxpayerId] });
     },
   });
 
@@ -27,6 +45,7 @@ export default function ImportPage() {
     mutationFn: () => {
       const fd = new FormData();
       fd.append("connector", connector);
+      fd.append("taxpayer_id", importTaxpayerId);
       fd.append("account_id", accountId);
       fd.append("file", file as File);
       return api.upload("/imports", fd);
@@ -38,15 +57,40 @@ export default function ImportPage() {
 
   return (
     <>
-      <h2>Importar Excel</h2>
+      <h2>Importar movimientos (CSV / Excel)</h2>
 
       <div className="card">
         <h3>Nueva cuenta</h3>
-        <input placeholder="Nombre (p. ej. Crypto.com)" value={newAccount} onChange={(e) => setNewAccount(e.target.value)} />
+        <select
+          value={importTaxpayerId}
+          onChange={(e) => setImportTaxpayerId(e.target.value)}
+        >
+          <option value="">— Contribuyente —</option>
+          {taxpayers.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name} {t.tax_id ? `(${t.tax_id})` : ""}
+            </option>
+          ))}
+        </select>
+        <input
+          placeholder="Nombre (p. ej. Crypto.com)"
+          value={newAccount}
+          onChange={(e) => setNewAccount(e.target.value)}
+        />
         <label className="muted">
-          <input type="checkbox" checked={abroad} onChange={(e) => setAbroad(e.target.checked)} /> En el extranjero (Modelo 721)
+          <input
+            type="checkbox"
+            checked={abroad}
+            onChange={(e) => setAbroad(e.target.checked)}
+          />{" "}
+          En el extranjero (Modelo 721)
         </label>
-        <button onClick={() => createAccount.mutate()} disabled={!newAccount}>Crear cuenta</button>
+        <button
+          onClick={() => createAccount.mutate()}
+          disabled={!newAccount || !importTaxpayerId}
+        >
+          Crear cuenta
+        </button>
       </div>
 
       <div className="card">
@@ -63,12 +107,22 @@ export default function ImportPage() {
             <option key={a.id} value={a.id}>{a.name}</option>
           ))}
         </select>
-        <input type="file" accept=".xlsx" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-        <button onClick={() => upload.mutate()} disabled={!connector || !accountId || !file}>Importar</button>
+        <input
+          type="file"
+          accept=".csv,.xlsx"
+          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+        />
+        <button
+          onClick={() => upload.mutate()}
+          disabled={!connector || !importTaxpayerId || !accountId || !file}
+        >
+          Importar
+        </button>
         {upload.isError && <p className="error">{String(upload.error)}</p>}
         {upload.data && (
           <p className="muted">
-            Insertadas {upload.data.inserted_count}, duplicadas {upload.data.duplicate_count}, estado {upload.data.status}.
+            Insertadas {upload.data.inserted_count}, duplicadas{" "}
+            {upload.data.duplicate_count}, estado {upload.data.status}.
           </p>
         )}
       </div>
@@ -77,13 +131,26 @@ export default function ImportPage() {
         <h3>Importaciones</h3>
         <table>
           <thead>
-            <tr><th>#</th><th>Conector</th><th>Fichero</th><th>Insertadas</th><th>Duplicadas</th><th>Estado</th></tr>
+            <tr>
+              <th>#</th>
+              <th>Contribuyente</th>
+              <th>Conector</th>
+              <th>Fichero</th>
+              <th>Insertadas</th>
+              <th>Duplicadas</th>
+              <th>Estado</th>
+            </tr>
           </thead>
           <tbody>
             {(batches.data ?? []).map((b: any) => (
               <tr key={b.id}>
-                <td>{b.id}</td><td>{b.connector}</td><td>{b.filename}</td>
-                <td>{b.inserted_count}</td><td>{b.duplicate_count}</td><td>{b.status}</td>
+                <td>{b.id}</td>
+                <td>{b.taxpayer_id}</td>
+                <td>{b.connector}</td>
+                <td>{b.filename}</td>
+                <td>{b.inserted_count}</td>
+                <td>{b.duplicate_count}</td>
+                <td>{b.status}</td>
               </tr>
             ))}
           </tbody>

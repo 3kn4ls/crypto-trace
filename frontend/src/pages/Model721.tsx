@@ -1,12 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api";
+import { buildTaxpayerQuery, useTaxpayers } from "../TaxpayerContext";
 
 export default function Model721() {
+  const { selectedIds } = useTaxpayers();
   const [year, setYear] = useState(String(new Date().getFullYear() - 1));
+  const q = selectedIds.length > 0 ? `?${buildTaxpayerQuery(selectedIds)}` : "";
+
   const data = useQuery({
-    queryKey: ["model721", year],
-    queryFn: () => api.get(`/reports/model721/${year}`),
+    queryKey: ["model721", year, selectedIds],
+    queryFn: () => api.get(`/reports/model721/${year}${q}`),
     enabled: !!year,
   });
 

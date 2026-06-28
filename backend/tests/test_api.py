@@ -63,20 +63,26 @@ def client():
 
 
 def test_full_http_flow(client):
+    taxpayer = client.post("/api/taxpayers", json={"name": "HTTP Test", "tax_id": "44444444A"}).json()
+    tp_id = taxpayer["id"]
+
     acc = client.post("/api/accounts", json={
-        "name": "Crypto.com", "platform": "CRYPTO_COM", "type": "EXCHANGE", "is_abroad": True,
+        "taxpayer_id": tp_id, "name": "Crypto.com", "platform": "CRYPTO_COM",
+        "type": "EXCHANGE", "is_abroad": True,
     }).json()
 
     batch = client.post(
         "/api/imports",
-        data={"connector": "CRYPTO_COM", "account_id": acc["id"]},
+        data={"connector": "CRYPTO_COM", "taxpayer_id": tp_id, "account_id": acc["id"]},
         files={"file": ("cdc.xlsx", _xlsx(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
     ).json()
     assert batch["inserted_count"] == 5
 
-    assert len(client.get("/api/transactions").json()) == 5
+    txs = client.get("/api/transactions", params={"taxpayer_id": tp_id}).json()
+    assert len(txs) == 5
+    assert all(t["source"] == "CRYPTO_COM" for t in txs)
 
-    tax = client.get("/api/fiscal-years/2024/tax").json()
+    tax = client.get("/api/fiscal-years/2024/tax", params={"taxpayer_id": tp_id}).json()
     # gains 8000 + RCM income 300 => savings base 8300.
     assert tax["savings_base"] == "8300.00"
     # 6000*0.19 + 2300*0.21 = 1140 + 483
@@ -85,14 +91,14 @@ def test_full_http_flow(client):
     # Price ETH at year end so Modelo 721 can value the holding.
     client.post("/api/prices", json={"asset_symbol": "ETH", "date": "2024-12-31T00:00:00", "price_eur": "12000"})
 
-    pf = client.get("/api/reports/portfolio").json()
+    pf = client.get("/api/reports/portfolio", params={"taxpayer_id": tp_id}).json()
     eth = next(r for r in pf if r["asset"] == "ETH")
     assert eth["quantity"] == "5.1"
 
-    m721 = client.get("/api/reports/model721/2024").json()
+    m721 = client.get("/api/reports/model721/2024", params={"taxpayer_id": tp_id}).json()
     assert m721["obligated"] is True  # 5.1 ETH * 12000 = 61200 > 50000
 
-    closed = client.post("/api/fiscal-years/2024/close").json()
+    closed = client.post(f"/api/fiscal-years/2024/close?taxpayer_id={tp_id}").json()
     assert closed["status"] == "CLOSED"
-    years = client.get("/api/fiscal-years").json()
-    assert any(y["year"] == 2024 and y["status"] == "CLOSED" for y in years)
+    years = client.get("/api/fiscal-years", params={"taxpayer_id": tp_id}).json()
+    assert any(y["year"] == 2024 and y["status"] == "CLOSED" and y["taxpayer_id"] == tp_id for y in years)

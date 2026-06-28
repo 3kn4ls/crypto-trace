@@ -38,7 +38,8 @@ class TransactionType(str, Enum):
     REFERRAL = "REFERRAL"
     SPEND = "SPEND"  # paying for goods/services with crypto (disposal)
     FEE = "FEE"
-    TRANSFER = "TRANSFER"  # internal move between own accounts
+    TRANSFER = "TRANSFER"  # internal move between own accounts (no fiscal effect)
+    REVERSAL = "REVERSAL"  # clawback of a prior reward (e.g. cashback reverted)
 
 
 class DisposalKind(str, Enum):
@@ -67,3 +68,23 @@ class ImportStatus(str, Enum):
     OK = "OK"
     PARTIAL = "PARTIAL"
     FAILED = "FAILED"
+
+
+class ReviewCategory(str, Enum):
+    P2P_TRANSFER = "P2P_TRANSFER"  # P2P with third party: needs ownership classification
+    REVERSAL = "REVERSAL"  # reward clawback, verify it matches prior income
+    INSUFFICIENT_BALANCE = "INSUFFICIENT_BALANCE"  # FIFO disposed more than recorded basis
+    MISSING_PRICE = "MISSING_PRICE"  # Modelo 721 / valuation missing price quote
+    MANUAL_REVIEW = "MANUAL_REVIEW"  # generic connector hint
+
+
+class ReviewStatus(str, Enum):
+    PENDING = "PENDING"
+    RESOLVED = "RESOLVED"
+    IGNORED = "IGNORED"
+
+
+class ReviewSeverity(str, Enum):
+    INFO = "INFO"
+    WARNING = "WARNING"
+    ERROR = "ERROR"

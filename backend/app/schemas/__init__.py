@@ -9,7 +9,27 @@ from pydantic import BaseModel, Field
 from app.models.enums import AccountPlatform, AccountType
 
 
+class TaxpayerCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+    tax_id: str | None = Field(None, max_length=32)
+
+
+class TaxpayerUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=128)
+    tax_id: str | None = Field(None, max_length=32)
+
+
+class TaxpayerOut(BaseModel):
+    id: int
+    name: str
+    tax_id: str | None = None
+    created_at: datetime | None = None
+
+    model_config = {"from_attributes": True}
+
+
 class AccountCreate(BaseModel):
+    taxpayer_id: int
     name: str
     platform: AccountPlatform = AccountPlatform.MANUAL
     type: AccountType = AccountType.EXCHANGE
@@ -19,6 +39,7 @@ class AccountCreate(BaseModel):
 
 class AccountOut(BaseModel):
     id: int
+    taxpayer_id: int
     name: str
     platform: AccountPlatform
     type: AccountType
