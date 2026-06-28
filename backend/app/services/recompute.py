@@ -15,7 +15,12 @@ from sqlalchemy.orm import Session
 from app.models import Disposal, IncomeEvent, Lot, LotConsumption, Transaction
 from app.services.fifo_engine import run_fifo
 from app.services.ledger import build_ledger
-from app.services.review_service import generate_fifo_items, generate_manual_items
+from app.services.review_service import (
+    auto_resolve_reversals,
+    generate_fifo_items,
+    generate_manual_items,
+)
+
 
 
 def recompute_all(db: Session) -> dict:
@@ -100,6 +105,7 @@ def recompute_all(db: Session) -> dict:
 
     # Ensure review items exist for manual connector notes and FIFO warnings.
     generate_manual_items(db)
+    auto_resolve_reversals(db)
     generate_fifo_items(db, result.warnings)
 
     return {

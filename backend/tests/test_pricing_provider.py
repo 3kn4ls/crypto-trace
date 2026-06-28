@@ -17,6 +17,17 @@ def test_coin_id_for_known_symbols():
     assert pp.coin_id_for("UNKNOWN") is None
 
 
+def test_discover_coin_id_falls_back_to_search():
+    # Unknown symbol should be discovered from /coins/list.
+    sample_list = [
+        {"id": "tiny-token", "symbol": "ttk", "name": "Tiny Token"},
+    ]
+    with patch.object(pp.requests, "get", return_value=_mock_response(sample_list)):
+        assert pp.discover_coin_id("TTK") == "tiny-token"
+    # Clears cache for other tests.
+    pp._DISCOVERED_IDS.pop("TTK", None)
+
+
 def test_fetch_history_eur_parses_response():
     sample = {
         "market_data": {

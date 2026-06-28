@@ -388,8 +388,9 @@ Centraliza los avisos que requieren atención del usuario:
 - `generate_manual_items`: escanea `Transaction.notes` y crea items (`P2P_TRANSFER`, `REVERSAL`, `MANUAL_REVIEW`).
 - `generate_fifo_items`: convierte los warnings estructurados del motor FIFO en items (`INSUFFICIENT_BALANCE`, `REVERSAL_SHORTFALL`).
 - `generate_missing_price_items`: detecta activos del Modelo 721 sin cotización a 31/12.
+- `auto_resolve_reversals`: busca avisos de `REVERSAL` que correspondan a una recompensa previa del mismo año, misma cuenta, mismo activo y misma cantidad; los marca como `AUTO_RESOLVED` porque el efecto fiscal neto es nulo, evitando que lleguen a la pantalla de revisión.
 - `list_items` / `summary`: listado y conteos filtrados por contribuyente, estado, categoría y año.
-- `resolve_item`: resuelve o ignora un aviso. Soporta acciones como `MARK_OWN_ACCOUNT`, `ACCEPT_ZERO_BASIS`, `ADD_PRICE_QUOTE`, `CREATE_OPENING_POSITION` e `IGNORE`.
+- `resolve_item`: resuelve o ignora un aviso. Soporta acciones como `MARK_OWN_ACCOUNT`, `ACCEPT_ZERO_BASIS`, `ADD_PRICE_QUOTE`, `CREATE_OPENING_POSITION`, `IGNORE` y `AUTO_RESOLVED`.
 
 `recompute_all` invoca la generación automática tras cada recomputación, por lo que los avisos se mantienen sincronizados con las transacciones.
 
@@ -568,7 +569,7 @@ Un depósito solo crea lote FIFO si se proporciona `eur_value`. Esto permite dis
 - Conector `REVOLUT_EXCHANGE` esqueleto.
 - Frontend funcional con 6 pantallas, selector global de contribuyente y dashboard completo con KPIs, filtros y gráficos; incluye botón para cargar precios históricos de CoinGecko.
 - Docker Compose operativo.
-- 29 funciones de test.
+- 32 funciones de test.
 
 ### 17.2 Tarea pendiente inmediata
 

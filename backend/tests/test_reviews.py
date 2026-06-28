@@ -138,3 +138,63 @@ def test_revert_review_returns_to_pending(client: TestClient):
     summary = client.get("/api/reviews/summary", params={"taxpayer_id": tp["id"]}).json()
     assert summary["pending"] == 1
     assert summary["resolved"] == 0
+
+
+def _reversal_csv():
+    """Reward followed by an exact reversal in the same year."""
+    return b"""Timestamp (UTC),Transaction Kind,Currency,Amount,To Currency,To Amount,Native Amount,Native Currency
+2024-06-01 10:00:00,referral_card_cashback,CRO,10,,,1,EUR
+2024-06-02 10:00:00,card_cashback_reverted,CRO,10,,,1,EUR
+"""
+
+
+def test_auto_resolve_matching_reversal(client: TestClient):
+    """A reversal that exactly matches a prior reward is auto-resolved on recompute."""
+    tp = client.post("/api/taxpayers", json={"name": "Auto Reversal", "tax_id": "55555555E"}).json()
+    acc = client.post("/api/accounts", json={
+        "taxpayer_id": tp["id"], "name": "Crypto.com", "platform": "CRYPTO_COM",
+        "type": "EXCHANGE", "is_abroad": True,
+    }).json()
+    client.post(
+        "/api/imports",
+        data={"connector": "CRYPTO_COM", "taxpayer_id": tp["id"], "account_id": acc["id"]},
+        files={"file": ("rev.csv", _reversal_csv(), "text/csv")},
+    )
+
+    # Import triggers recompute, which auto-resolves the matched reversal.
+    summary = client.get("/api/reviews/summary", params={"taxpayer_id": tp["id"]}).json()
+    assert summary["pending"] == 0
+    assert summary["resolved"] == 1
+
+    items = client.get("/api/reviews", params={"taxpayer_id": tp["id"], "category": "REVERSAL"}).json()
+    assert len(items) == 1
+    assert items[0]["status"] == "RESOLVED"
+    assert items[0]["resolution_action"] == "AUTO_RESOLVED"
+    assert "tx" in items[0]["resolution_note"]
+
+    # A second explicit generation finds nothing else to resolve.
+    gen = client.post("/api/reviews/generate", params={"taxpayer_id": tp["id"]}).json()
+    assert gen["auto_resolved_reversals"] == 0
+
+
+def test_unmatched_reversal_stays_pending(client: TestClient):
+    """A reversal with no matching reward remains PENDING."""
+    tp = client.post("/api/taxpayers", json={"name": "Unmatched Reversal", "tax_id": "66666666F"}).json()
+    acc = client.post("/api/accounts", json={
+        "taxpayer_id": tp["id"], "name": "Crypto.com", "platform": "CRYPTO_COM",
+        "type": "EXCHANGE", "is_abroad": True,
+    }).json()
+    csv = b"""Timestamp (UTC),Transaction Kind,Currency,Amount,To Currency,To Amount,Native Amount,Native Currency
+2024-06-02 10:00:00,card_cashback_reverted,CRO,10,,,1,EUR
+"""
+    client.post(
+        "/api/imports",
+        data={"connector": "CRYPTO_COM", "taxpayer_id": tp["id"], "account_id": acc["id"]},
+        files={"file": ("unmatched.csv", csv, "text/csv")},
+    )
+
+    gen = client.post("/api/reviews/generate", params={"taxpayer_id": tp["id"]}).json()
+    assert gen["auto_resolved_reversals"] == 0
+
+    summary = client.get("/api/reviews/summary", params={"taxpayer_id": tp["id"]}).json()
+    assert summary["pending"] == 1

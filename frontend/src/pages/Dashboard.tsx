@@ -103,8 +103,10 @@ export default function Dashboard() {
     },
   });
 
-  const baseQ = selectedIds.length > 0 ? `?${buildTaxpayerQuery(selectedIds)}&` : "?";
-  const url = `/reports/dashboard${baseQ}year=${year}`;
+  const params = new URLSearchParams();
+  selectedIds.forEach((id) => params.append("taxpayer_ids", String(id)));
+  if (year !== "") params.set("year", String(year));
+  const url = `/reports/dashboard${params.toString() ? `?${params.toString()}` : ""}`;
 
   const { data, isLoading } = useQuery({
     queryKey: ["dashboard", selectedIds, year],

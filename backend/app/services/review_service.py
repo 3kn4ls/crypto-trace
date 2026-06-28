@@ -22,8 +22,17 @@ from app.models import (
     ReviewStatus,
     Taxpayer,
     Transaction,
+    TransactionType,
 )
 from app.services.fifo_engine import EngineWarning
+
+
+# Income-like transaction types that can be clawed back via REVERSAL.
+_REVERSABLE_REWARD_TYPES = {
+    TransactionType.STAKING_REWARD,
+    TransactionType.REFERRAL,
+    TransactionType.AIRDROP,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +96,85 @@ def generate_manual_items(db: Session, *, taxpayer_id: int | None = None) -> int
         created += 1
     db.commit()
     return created
+
+
+def auto_resolve_reversals(db: Session, *, taxpayer_id: int | None = None) -> int:
+    """Auto-resolve reversal review items when they match a prior reward.
+
+    Crypto.com (and similar platforms) sometimes claws back a reward (cashback,
+    staking, airdrop) within the same fiscal year. When the reversal exactly
+    matches a prior income-like transaction by asset, quantity, account and year,
+    the net fiscal effect is zero, so no user review is needed.
+
+    This function scans pending REVERSAL items, finds their paired reward and
+    marks the item as RESOLVED with action ``AUTO_RESOLVED``. Unmatched reversals
+    remain PENDING so the user can review them manually.
+
+    Returns the number of items auto-resolved.
+    """
+    q = (
+        select(ReviewItem)
+        .where(ReviewItem.category == ReviewCategory.REVERSAL)
+        .where(ReviewItem.status == ReviewStatus.PENDING)
+    )
+    if taxpayer_id is not None:
+        q = q.where(ReviewItem.taxpayer_id == taxpayer_id)
+    items = list(db.scalars(q))
+    if not items:
+        return 0
+
+    # Load reversal transactions referenced by the review items.
+    reversal_tx_ids = {item.transaction_id for item in items if item.transaction_id is not None}
+    reversals = {
+        tx.id: tx
+        for tx in db.scalars(select(Transaction).where(Transaction.id.in_(reversal_tx_ids)))
+        if tx.type == TransactionType.REVERSAL
+    }
+
+    # Build an index of candidate reward transactions per (taxpayer, account, asset, year).
+    # We restrict to income-like types that can be clawed back.
+    q_rewards = select(Transaction).where(Transaction.type.in_(_REVERSABLE_REWARD_TYPES))
+    if taxpayer_id is not None:
+        q_rewards = q_rewards.where(Transaction.taxpayer_id == taxpayer_id)
+    reward_index: dict[tuple, list[Transaction]] = {}
+    for tx in db.scalars(q_rewards):
+        key = (tx.taxpayer_id, tx.account_id, tx.asset_in_id, tx.fiscal_year)
+        reward_index.setdefault(key, []).append(tx)
+    for bucket in reward_index.values():
+        bucket.sort(key=lambda t: t.timestamp)
+
+    resolved = 0
+    used_rewards: set[int] = set()
+    for item in items:
+        rev_tx = reversals.get(item.transaction_id) if item.transaction_id else None
+        if rev_tx is None:
+            continue
+        key = (rev_tx.taxpayer_id, rev_tx.account_id, rev_tx.asset_out_id, rev_tx.fiscal_year)
+        candidates = reward_index.get(key, [])
+        target_qty = rev_tx.amount_out
+        match = None
+        for cand in candidates:
+            if cand.id in used_rewards:
+                continue
+            if cand.timestamp > rev_tx.timestamp:
+                continue
+            if cand.amount_in == target_qty:
+                match = cand
+                break
+        if match is None:
+            continue
+        used_rewards.add(match.id)
+        item.status = ReviewStatus.RESOLVED
+        item.resolution_action = "AUTO_RESOLVED"
+        item.resolution_note = (
+            f"Auto-resuelto: emparejado con recompensa previa "
+            f"(tx {match.id}, {match.amount_in} {match.asset_in.symbol}, "
+            f"{match.timestamp.date().isoformat()}). Efecto fiscal neto nulo en el ejercicio."
+        )
+        item.resolved_at = datetime.utcnow()
+        resolved += 1
+    db.commit()
+    return resolved
 
 
 def _engine_category(warn: EngineWarning) -> ReviewCategory:
@@ -264,7 +352,7 @@ VALID_ACTIONS = {
         "MARK_PAYMENT",
         "IGNORE",
     },
-    ReviewCategory.REVERSAL: {"REVIEWED_OK", "IGNORE"},
+    ReviewCategory.REVERSAL: {"REVIEWED_OK", "IGNORE", "AUTO_RESOLVED"},
     ReviewCategory.INSUFFICIENT_BALANCE: {"ACCEPT_ZERO_BASIS", "CREATE_OPENING_POSITION", "IGNORE"},
     ReviewCategory.MANUAL_REVIEW: {"REVIEWED_OK", "IGNORE"},
     ReviewCategory.MISSING_PRICE: {"ADD_PRICE_QUOTE", "IGNORE"},

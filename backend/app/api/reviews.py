@@ -86,10 +86,11 @@ def generate_reviews(
 ) -> dict:
     ids = _active_taxpayer_ids(db, taxpayer_id, taxpayer_ids)
     manual = rs.generate_manual_items(db, taxpayer_id=ids[0] if ids and len(ids) == 1 else None)
+    auto = rs.auto_resolve_reversals(db, taxpayer_id=ids[0] if ids and len(ids) == 1 else None)
     prices = 0
     if year:
         prices = rs.generate_missing_price_items(db, year=year, taxpayer_ids=ids)
-    return {"manual_items_ensured": manual, "missing_price_items_ensured": prices}
+    return {"manual_items_ensured": manual, "auto_resolved_reversals": auto, "missing_price_items_ensured": prices}
 
 
 @router.post("/{item_id}/resolve")

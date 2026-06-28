@@ -12,7 +12,7 @@ from app.connectors import list_connectors
 from app.core.db import get_db
 from app.models import Asset, Disposal, IncomeEvent, Lot, PriceQuote
 from app.schemas import PriceQuoteIn
-from app.services.pricing_provider import coin_id_for, fetch_history_eur
+from app.services.pricing_provider import coin_id_for, discover_coin_id, fetch_history_eur
 from app.services.pricing_service import upsert_price
 
 router = APIRouter()
@@ -90,7 +90,8 @@ def fetch_historical_prices(
     for y in years:
         target = date(y, 12, 31)
         for asset in assets.values():
-            coin_id = coin_id_for(asset.symbol)
+            # First try the hardcoded map; if it fails, attempt dynamic discovery.
+            coin_id = coin_id_for(asset.symbol) or discover_coin_id(asset.symbol)
             if not coin_id:
                 missing.append({"asset": asset.symbol, "year": y, "reason": "sin_mapeo_coingecko"})
                 continue
