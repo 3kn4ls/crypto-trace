@@ -13,6 +13,7 @@ frontend/dist/
 
 # Datos fiscales personales (informes/extractos de exchanges) — NUNCA subir
 informes/
+/*.csv   # extracts descargados en la raíz por defecto
 
 # OS / editors
 .DS_Store
