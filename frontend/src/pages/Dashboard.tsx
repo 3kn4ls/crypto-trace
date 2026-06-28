@@ -215,6 +215,15 @@ export default function Dashboard() {
 
       {!isLoading && (
         <>
+          {year !== "" && (
+            <div className="card" style={{ marginBottom: 16, padding: "12px 16px", display: "flex", gap: 12, alignItems: "center" }}>
+              <span className="badge open">Ejercicio {year}</span>
+              <span className="muted">
+                Mostrando solo datos del ejercicio {year}. El patrimonio se valora a 31/12/{year}.
+              </span>
+            </div>
+          )}
+
           {/* KPIs */}
           <div className="kpi-grid">
             <div className="card kpi">
@@ -236,7 +245,7 @@ export default function Dashboard() {
             </div>
 
             <div className="card kpi">
-              <div className="muted">Total aportado</div>
+              <div className="muted">Total aportado {year ? `(${year})` : ""}</div>
               <div className="stat">{eur(investedTotals.invested_eur)}</div>
               <div className="kpi-trend muted">
                 {eur(investedTotals.rewards_eur)} en recompensas · {eur(investedTotals.cost_basis_eur)} base de coste total
@@ -244,7 +253,7 @@ export default function Dashboard() {
             </div>
 
             <div className="card kpi">
-              <div className="muted">Ganancia neta realizada</div>
+              <div className="muted">Ganancia neta realizada {year ? `(${year})` : ""}</div>
               <div className={`stat ${trendClass(Number(fiscal.net_capital_gain))}`}>
                 {eur(fiscal.net_capital_gain)}
               </div>
@@ -254,13 +263,13 @@ export default function Dashboard() {
             </div>
 
             <div className="card kpi">
-              <div className="muted">Impuesto estimado</div>
+              <div className="muted">Impuesto estimado {year ? `(${year})` : ""}</div>
               <div className="stat">{eur(fiscal.tax_due_eur)}</div>
               <div className="kpi-trend muted">Base ahorro: {eur(fiscal.savings_base)}</div>
             </div>
 
             <div className="card kpi">
-              <div className="muted">Ingresos declarables</div>
+              <div className="muted">Ingresos declarables {year ? `(${year})` : ""}</div>
               <div className="stat">{eur(Number(fiscal.rcm_income) + Number(fiscal.ganancia_income) + Number(fiscal.actividad_income))}</div>
               <div className="kpi-trend muted">
                 RCM {eur(fiscal.rcm_income)} · Ganancias {eur(fiscal.ganancia_income)} · Actividad {eur(fiscal.actividad_income)}
@@ -307,7 +316,7 @@ export default function Dashboard() {
             </div>
 
             <div className="card">
-              <h3>Evolución del patrimonio</h3>
+              <h3>Evolución del patrimonio (cierre de año)</h3>
               {portfolioChart.length === 0 ? (
                 <p className="muted">Sin datos de cartera.</p>
               ) : (
@@ -335,9 +344,9 @@ export default function Dashboard() {
           {/* Distribution, activity, reviews */}
           <div className="chart-grid">
             <div className="card">
-              <h3>Distribución de la cartera</h3>
+              <h3>Distribución de la cartera {year ? `(${year})` : ""}</h3>
               {holdings.length === 0 ? (
-                <p className="muted">Sin precios cargados. Añade cotizaciones para valorar.</p>
+                <p className="muted">Sin activos valorados para el período seleccionado.</p>
               ) : (
                 <ResponsiveContainer width="100%" height={300}>
                   <PieChart>
@@ -429,7 +438,7 @@ export default function Dashboard() {
           {/* Tables */}
           <div className="chart-grid">
             <div className="card">
-              <h3>Top activos por valor</h3>
+              <h3>Top activos por valor {year ? `(${year})` : ""}</h3>
               <table>
                 <thead>
                   <tr>
@@ -458,7 +467,7 @@ export default function Dashboard() {
             </div>
 
             <div className="card">
-              <h3>Últimas transacciones</h3>
+              <h3>Últimas transacciones {year ? `(${year})` : ""}</h3>
               <table>
                 <thead>
                   <tr>
@@ -483,13 +492,13 @@ export default function Dashboard() {
                   ))}
                 </tbody>
               </table>
-              {lastTransactions.length === 0 && <p className="muted">Sin transacciones.</p>}
+              {lastTransactions.length === 0 && <p className="muted">Sin transacciones en el período seleccionado.</p>}
             </div>
           </div>
 
           {contributions.length > 0 && (
             <div className="card">
-              <h3>Dinero aportado por activo</h3>
+              <h3>Dinero aportado por activo {year ? `(${year})` : ""}</h3>
               <table>
                 <thead>
                   <tr>
