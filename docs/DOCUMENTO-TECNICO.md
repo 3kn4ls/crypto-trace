@@ -321,7 +321,7 @@ class CanonicalTransaction:
 | Conector | Fichero | Mapping | Estado |
 |----------|---------|---------|--------|
 | `CRYPTO_COM` | `crypto_com.py` | `crypto_com.yaml` | Implementado para App/exchange; soporta 13+ tipos incluyendo cashback, reversión, transfers internos/P2P. **PROVISIONAL**; ajustar con export real. |
-| `REVOLUT` | `revolut.py` | `revolut.yaml` | Implementado para el informe de ganancias/pérdidas de Revolut (`Date acquired`, `Date sold`, `Symbol`, `Quantity`, `Cost basis`, `Gross proceeds`, `Fees`, `Currency`). Cada fila genera un `BUY` + un `SELL` ordenados cronológicamente. Aplica tasa USD→EUR configurable. |
+| `REVOLUT` | `revolut.py` | `revolut.yaml` | Implementado para el informe de ganancias/pérdidas de Revolut (`Date acquired`, `Date sold`, `Symbol`, `Quantity`, `Cost basis`, `Gross proceeds`, `Fees`, `Currency`). Cada fila genera un `BUY` + un `SELL` ordenados cronológicamente. Convierte USD a EUR usando el tipo de cambio oficial del BCE (Frankfurter) para cada fecha; usa `fallback_usd_to_eur_rate` si la API no responde. |
 | `REVOLUT_EXCHANGE` | `revolut_exchange.py` | `revolut_exchange.yaml` | Esqueleto implementado. **PROVISIONAL**. |
 
 ### 9.4 Deduplicación e idempotencia
@@ -515,7 +515,7 @@ Ubicados en `backend/tests/`:
 - `test_revolut.py`: conector Revolut para informe de ganancias/pérdidas (`BUY`+`SELL` por fila, comisiones, orden cronológico, import del fichero real en `informes/`); usa contribuyente.
 - `test_pricing_provider.py`: descubrimiento dinámico de IDs de CoinGecko y carga de cotizaciones históricas.
 
-En total el proyecto contiene **34 funciones de test** (+ 1 skipped si el CSV real de Crypto.com no está presente).
+En total el proyecto contiene **35 funciones de test** (+ 1 skipped si el CSV real de Crypto.com no está presente).
 
 Ejecución:
 ```bash
@@ -573,7 +573,7 @@ Un depósito solo crea lote FIFO si se proporciona `eur_value`. Esto permite dis
 - Conector `REVOLUT_EXCHANGE` esqueleto.
 - Frontend funcional con 6 pantallas, selector global de contribuyente y dashboard completo con KPIs, filtros y gráficos; incluye botón para cargar precios históricos de CoinGecko.
 - Docker Compose operativo.
-- 34 funciones de test (+ 1 skipped por muestra real no presente).
+- 35 funciones de test (+ 1 skipped por muestra real no presente).
 
 ### 17.2 Tarea pendiente inmediata
 

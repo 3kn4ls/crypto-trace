@@ -1,8 +1,9 @@
 """Revolut "Gains / Losses" connector tests.
 
 Each CSV row describes a completed round-trip trade. The connector must emit a
-BUY on the acquisition date and a SELL on the disposal date, applying the
-configurable USD→EUR rate to the reported USD values.
+BUY on the acquisition date and a SELL on the disposal date, converting USD
+amounts to EUR using the official ECB reference rate for each date (or the
+configured fallback if the API is unavailable).
 """
 from __future__ import annotations
 
@@ -19,6 +20,7 @@ from app.models import (
     Transaction,
     TransactionType,
 )
+from app.services.exchange_rate_provider import _RATE_CACHE
 from app.services.import_service import import_excel
 
 REAL_CSV = (
@@ -56,7 +58,14 @@ def _csv(*rows: str) -> bytes:
     return ("\n".join([HEADER, *rows]) + "\n").encode("utf-8")
 
 
-def test_buy_and_sell_created_per_row(db):
+def test_buy_and_sell_created_per_row(db, monkeypatch):
+    # Fix the Frankfurter rate so the test does not depend on network/API state.
+    _RATE_CACHE.clear()
+    monkeypatch.setattr(
+        "app.connectors.revolut.fetch_usd_eur_rate",
+        lambda on: Decimal("0.92"),
+    )
+
     taxpayer = _taxpayer(db)
     acc = _account(db, taxpayer.id)
     content = _csv(
@@ -80,7 +89,7 @@ def test_buy_and_sell_created_per_row(db):
     assert buy.type == TransactionType.BUY
     assert buy.asset_in.symbol == "BTC"
     assert buy.amount_in == Decimal("0.00067626")
-    # Cost basis 57.95 USD * default rate 0.92 = 53.314 -> quantize 0.01 -> 53.31
+    # Cost basis 57.95 USD * 0.92 = 53.314 -> quantize 0.01 -> 53.31
     assert buy.eur_value == Decimal("53.31")
     assert buy.timestamp.year == 2025
     assert buy.timestamp.month == 4
@@ -95,7 +104,13 @@ def test_buy_and_sell_created_per_row(db):
     assert sell.timestamp.day == 19
 
 
-def test_zero_fee_skips_fee_asset(db):
+def test_zero_fee_skips_fee_asset(db, monkeypatch):
+    _RATE_CACHE.clear()
+    monkeypatch.setattr(
+        "app.connectors.revolut.fetch_usd_eur_rate",
+        lambda on: Decimal("0.92"),
+    )
+
     taxpayer = _taxpayer(db)
     acc = _account(db, taxpayer.id)
     content = _csv(
@@ -112,6 +127,42 @@ def test_zero_fee_skips_fee_asset(db):
     )
     assert sell.fee_amount is None
     assert sell.fee_asset_id is None
+
+
+def test_different_dates_use_different_rates(db, monkeypatch):
+    """A row whose BUY and SELL dates differ should use each day's rate."""
+    _RATE_CACHE.clear()
+
+    def fake_rate(on):
+        # 2025-04-15 -> 0.88, 2025-04-19 -> 0.90
+        return Decimal("0.88") if on.isoformat() == "2025-04-15" else Decimal("0.90")
+
+    monkeypatch.setattr(
+        "app.connectors.revolut.fetch_usd_eur_rate",
+        fake_rate,
+    )
+
+    taxpayer = _taxpayer(db)
+    acc = _account(db, taxpayer.id)
+    content = _csv(
+        "2025-04-15,2025-04-19,BTC,0.00067626,57.95,57.88,-0.07,0.05,-0.12,USD",
+    )
+    import_excel(
+        db, connector_name="REVOLUT", taxpayer_id=taxpayer.id, account_id=acc.id,
+        filename="revolut.csv", content=content,
+    )
+
+    buy = db.scalar(
+        select(Transaction).where(Transaction.type == TransactionType.BUY)
+    )
+    sell = db.scalar(
+        select(Transaction).where(Transaction.type == TransactionType.SELL)
+    )
+
+    # BUY uses acquisition-date rate (0.88): 57.95 * 0.88 = 50.996 -> 51.00
+    assert buy.eur_value == Decimal("51.00")
+    # SELL uses disposal-date rate (0.90): 57.88 * 0.90 = 52.092 -> 52.09
+    assert sell.eur_value == Decimal("52.09")
 
 
 def test_real_revolut_export_imports_cleanly():

@@ -8,11 +8,13 @@ row into two canonical transactions:
 * a BUY on ``Date acquired`` (acquire the asset at cost basis)
 * a SELL on ``Date sold`` (dispose the asset at gross proceeds, net of fees)
 
-USD amounts are converted to EUR via the optional ``usd_to_eur_rate`` multiplier
-in ``mappings/revolut.yaml`` (defaults to 1.0).
+USD amounts are converted to EUR using the official ECB reference rate
+(Frankfurter API) for the corresponding date. If the API is unavailable, the
+``fallback_usd_to_eur_rate`` value from ``mappings/revolut.yaml`` is used.
 """
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, BinaryIO
@@ -21,6 +23,7 @@ from app.connectors.base import BaseConnector, CanonicalTransaction, ParseResult
 from app.connectors.registry import register
 from app.core.money import to_decimal
 from app.models.enums import AccountPlatform, TransactionType
+from app.services.exchange_rate_provider import fetch_usd_eur_rate
 
 
 @register
@@ -32,13 +35,25 @@ class RevolutConnector(BaseConnector):
     FIAT = "USD"  # values in the export are denominated in USD
 
     def _begin_parse(self) -> None:
-        """Reset the per-file BUY side-list."""
+        """Reset the per-file BUY side-list and rate cache."""
         self._row_counter = 0
         self._pending: list[CanonicalTransaction] = []
+        self._rate_cache: dict[date, Decimal] = {}
+        self._fallback = to_decimal(
+            str(self.mapping.get("fallback_usd_to_eur_rate", 1.0))
+        )
+
+    def _rate(self, on: date) -> Decimal:
+        """USD/EUR rate for ``on``; cache per file and fall back if needed."""
+        if on not in self._rate_cache:
+            rate = fetch_usd_eur_rate(on)
+            if rate is None:
+                rate = self._fallback
+            self._rate_cache[on] = rate
+        return self._rate_cache[on]
 
     def normalize_row(self, raw: dict[str, Any], row_no: int) -> CanonicalTransaction | None:
         c = self.mapping["columns"]
-        rate = to_decimal(str(self.mapping.get("usd_to_eur_rate", 1.0)))
 
         symbol = self._sym(self._cell(raw, c["symbol"]))
         quantity = self._dec(self._cell(raw, c["quantity"]))
@@ -52,6 +67,8 @@ class RevolutConnector(BaseConnector):
 
         acquired = self._parse_dt(self._cell(raw, c["date_acquired"]))
         sold = self._parse_dt(self._cell(raw, c["date_sold"]))
+        acquired_date = acquired.date()
+        sold_date = sold.date()
 
         self._row_counter += 1
         base_id = self.synth_id(
@@ -59,36 +76,42 @@ class RevolutConnector(BaseConnector):
             cost_basis, proceeds, fees,
         )
 
-        # The original currency and applied rate are preserved in raw_json.
-        # We intentionally do not put them in Transaction.notes so the connector
-        # does not generate one MANUAL_REVIEW item per imported row.
+        # Preserve conversion metadata in raw_json; do not store it in
+        # Transaction.notes to avoid generating one MANUAL_REVIEW item per row.
 
-        # BUY: receive crypto, give fiat value = cost basis
+        # BUY: receive crypto, give fiat value = cost basis converted at the
+        # acquisition date rate.
+        buy_rate = self._rate(acquired_date)
+        buy_cost_eur = self._to_eur(cost_basis, buy_rate)
         buy_tx = self.make_tx(
             tx_type=TransactionType.BUY,
             timestamp=acquired,
             external_id=f"{base_id}-buy",
-            eur_value=self._to_eur(cost_basis, rate),
+            eur_value=buy_cost_eur,
             raw=raw,
             recv_asset=symbol,
             recv_amount=quantity,
             give_asset="EUR",
-            give_amount=self._to_eur(cost_basis, rate),
+            give_amount=buy_cost_eur,
         )
 
-        # SELL: give crypto, receive fiat value = gross proceeds
+        # SELL: give crypto, receive fiat value = gross proceeds converted at
+        # the disposal date rate; fees use the disposal date rate too.
+        sell_rate = self._rate(sold_date)
+        sell_proceeds_eur = self._to_eur(proceeds, sell_rate)
+        sell_fee_eur = self._to_eur(fees, sell_rate) if fees else None
         sell_tx = self.make_tx(
             tx_type=TransactionType.SELL,
             timestamp=sold,
             external_id=f"{base_id}-sell",
-            eur_value=self._to_eur(proceeds, rate),
+            eur_value=sell_proceeds_eur,
             raw=raw,
             give_asset=symbol,
             give_amount=quantity,
             recv_asset="EUR",
-            recv_amount=self._to_eur(proceeds, rate),
+            recv_amount=sell_proceeds_eur,
             fee_asset="EUR" if fees else None,
-            fee_amount=self._to_eur(fees, rate) if fees else None,
+            fee_amount=sell_fee_eur,
         )
 
         # BaseConnector.parse expects a single transaction per row. We queue the

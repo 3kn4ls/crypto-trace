@@ -3,10 +3,10 @@
 # ``Date acquired`` and sold on ``Date sold``. The connector emits two
 # canonical transactions per row: a BUY and a SELL.
 #
-# NOTE: Revolut exports this report in USD. The connector applies the optional
-# ``usd_to_eur_rate`` multiplier to the USD amounts before storing them as
-# ``eur_value``. Leave the rate at 1.0 to import raw USD values (and adjust
-# later via reviews / manual edits).
+# NOTE: Revolut exports this report in USD. The connector converts each USD
+# amount to EUR using the official ECB reference rate (via Frankfurter) for the
+# corresponding date. If the API is unavailable, it falls back to the
+# ``usd_to_eur_rate`` value below.
 header_row: 1
 decimal_sep: "."
 date_formats:
@@ -22,5 +22,6 @@ columns:
   fees: "Fees"
   currency: "Currency"
 
-# Approximate USD -> EUR rate. Override to match the tax year you are reporting.
-usd_to_eur_rate: 0.92
+# Fallback USD -> EUR rate, used only when the Frankfurter API is unreachable.
+# Set to 1.0 to store raw USD values in that fallback case.
+fallback_usd_to_eur_rate: 0.92
