@@ -49,6 +49,16 @@ input, select {
 .flex-between { display: flex; justify-content: space-between; align-items: center; }
 button.danger { background: var(--bad); color: #3f0f0f; }
 button.danger:hover { filter: brightness(1.1); }
+button.link {
+  background: transparent;
+  color: var(--accent);
+  border: 0;
+  padding: 0;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+button.link:disabled { color: var(--muted); cursor: not-allowed; text-decoration: none; }
 
 /* Modal / dialog */
 .modal-backdrop {

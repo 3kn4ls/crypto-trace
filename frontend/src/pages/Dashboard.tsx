@@ -194,7 +194,7 @@ export default function Dashboard() {
           </label>
           <button
             onClick={() => fetchPrices.mutate()}
-            disabled={fetchPrices.isPending || selectedIds.length === 0}
+            disabled={fetchPrices.isPending}
             title="Cargar precios de cierre de año desde CoinGecko"
           >
             {fetchPrices.isPending ? "Cargando precios..." : "Cargar precios históricos (CoinGecko)"}
@@ -220,9 +220,19 @@ export default function Dashboard() {
             <div className="card kpi">
               <div className="muted">Patrimonio {year ? `a 31/12/${year}` : "actual"}</div>
               <div className="stat">{eur(portfolio.total_value_eur)}</div>
-              <div className={`kpi-trend ${trendClass(Number(portfolio.unrealized_gain_eur))}`}>
-                {Number(portfolio.unrealized_gain_eur) >= 0 ? "▲" : "▼"} {eur(portfolio.unrealized_gain_eur)} no realizado
-              </div>
+              {portfolio.assets_without_price > 0 ? (
+                <div className="kpi-trend muted" style={{ color: "#fbbf24" }}>
+                  ⚠️ {portfolio.assets_without_price} activo{portfolio.assets_without_price > 1 ? "s" : ""} sin cotización.
+                  {" "}
+                  <button className="link" onClick={() => fetchPrices.mutate()} disabled={fetchPrices.isPending}>
+                    Cargar precios
+                  </button>
+                </div>
+              ) : (
+                <div className={`kpi-trend ${trendClass(Number(portfolio.unrealized_gain_eur))}`}>
+                  {Number(portfolio.unrealized_gain_eur) >= 0 ? "▲" : "▼"} {eur(portfolio.unrealized_gain_eur)} no realizado
+                </div>
+              )}
             </div>
 
             <div className="card kpi">
