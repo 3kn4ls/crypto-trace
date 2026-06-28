@@ -2,12 +2,30 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api";
 import ReviewDialog from "../components/ReviewDialog";
+import TransactionEditDialog from "../components/TransactionEditDialog";
 import { buildTaxpayerQuery, useTaxpayers } from "../TaxpayerContext";
+
+interface Transaction {
+  id: number;
+  timestamp: string;
+  type: string;
+  asset_in: string | null;
+  amount_in: string | null;
+  asset_out: string | null;
+  amount_out: string | null;
+  eur_value: string | null;
+  cost_basis_eur: string | null;
+  is_internal_transfer: boolean;
+  fiscal_year: number;
+  source: string | null;
+  notes: string | null;
+}
 
 export default function Transactions() {
   const { selectedIds } = useTaxpayers();
   const [year, setYear] = useState("");
   const [activeTx, setActiveTx] = useState<number | null>(null);
+  const [editTx, setEditTx] = useState<Transaction | null>(null);
 
   const q = selectedIds.length > 0 ? `?${buildTaxpayerQuery(selectedIds)}&` : "?";
   const url = `/transactions${q}${year ? `year=${year}` : ""}`;
@@ -35,13 +53,15 @@ export default function Transactions() {
               <th>Entra</th>
               <th>Sale</th>
               <th>Valor €</th>
+              <th>Coste base €</th>
+              <th>Interna</th>
               <th>Origen</th>
               <th>Año</th>
-              <th>Revisar</th>
+              <th>Acciones</th>
             </tr>
           </thead>
           <tbody>
-            {(txs.data ?? []).map((t: any) => (
+            {(txs.data ?? []).map((t: Transaction) => (
               <tr key={t.id}>
                 <td>{new Date(t.timestamp).toLocaleString("es-ES")}</td>
                 <td>{t.taxpayer_id}</td>
@@ -49,16 +69,19 @@ export default function Transactions() {
                 <td>{t.amount_in ? `${t.amount_in} ${t.asset_in}` : "—"}</td>
                 <td>{t.amount_out ? `${t.amount_out} ${t.asset_out}` : "—"}</td>
                 <td>{t.eur_value ?? "—"}</td>
+                <td>{t.cost_basis_eur ?? "—"}</td>
+                <td>{t.is_internal_transfer ? "Sí" : "No"}</td>
                 <td>{t.source ?? "—"}</td>
                 <td>{t.fiscal_year}</td>
                 <td>
-                  {t.notes ? (
+                  <button className="small" onClick={() => setEditTx(t)} style={{ marginRight: 8 }}>
+                    Editar
+                  </button>
+                  {t.notes && (
                     <>
                       <span title={t.notes}>⚠️</span>{" "}
                       <button className="small" onClick={() => setActiveTx(t.id)}>Revisar</button>
                     </>
-                  ) : (
-                    "—"
                   )}
                 </td>
               </tr>
@@ -70,6 +93,9 @@ export default function Transactions() {
 
       {activeTx !== null && (
         <ReviewDialog transactionId={activeTx} onClose={() => setActiveTx(null)} />
+      )}
+      {editTx !== null && (
+        <TransactionEditDialog transaction={editTx} onClose={() => setEditTx(null)} />
       )}
     </>
   );

@@ -67,20 +67,20 @@ def test_full_http_flow(client):
     tp_id = taxpayer["id"]
 
     acc = client.post("/api/accounts", json={
-        "taxpayer_id": tp_id, "name": "Crypto.com", "platform": "CRYPTO_COM",
+        "taxpayer_id": tp_id, "name": "Crypto.com", "platform": "CRYPTO_COM_BANK",
         "type": "EXCHANGE", "is_abroad": True,
     }).json()
 
     batch = client.post(
         "/api/imports",
-        data={"connector": "CRYPTO_COM", "taxpayer_id": tp_id, "account_id": acc["id"]},
+        data={"connector": "CRYPTO_COM_BANK", "taxpayer_id": tp_id, "account_id": acc["id"]},
         files={"file": ("cdc.xlsx", _xlsx(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
     ).json()
     assert batch["inserted_count"] == 5
 
     txs = client.get("/api/transactions", params={"taxpayer_id": tp_id}).json()
     assert len(txs) == 5
-    assert all(t["source"] == "CRYPTO_COM" for t in txs)
+    assert all(t["source"] == "CRYPTO_COM_BANK" for t in txs)
 
     tax = client.get("/api/fiscal-years/2024/tax", params={"taxpayer_id": tp_id}).json()
     # gains 8000 + RCM income 300 => savings base 8300.

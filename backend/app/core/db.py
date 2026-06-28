@@ -72,6 +72,23 @@ def migrate_db() -> None:
         # 3. Add source column to transactions.
         add_col("transactions", "source", "VARCHAR(64)")
 
+        # 4. Add columns for configurable FIFO behaviour and explicit cost basis.
+        add_col("transactions", "is_internal_transfer", "BOOLEAN DEFAULT 1")
+        add_col("transactions", "cost_basis_eur", "TEXT")
+
+        # 5. Create reward preference table if it does not exist.
+        if not _table_exists(conn, "taxpayer_reward_preferences"):
+            conn.execute(text(
+                "CREATE TABLE taxpayer_reward_preferences ("
+                "  id INTEGER PRIMARY KEY,"
+                "  taxpayer_id INTEGER NOT NULL REFERENCES taxpayers(id),"
+                "  transaction_type VARCHAR(24) NOT NULL,"
+                "  income_category VARCHAR(16) NOT NULL,"
+                "  zero_cost_basis BOOLEAN DEFAULT 0,"
+                "  UNIQUE (taxpayer_id, transaction_type)"
+                ")"
+            ))
+
         # 4. Ensure a default taxpayer exists.
         if _table_exists(conn, "taxpayers"):
             first = conn.execute(text("SELECT id FROM taxpayers ORDER BY id LIMIT 1")).scalar()
@@ -79,7 +96,7 @@ def migrate_db() -> None:
                 conn.execute(text("INSERT INTO taxpayers (name) VALUES ('Principal')"))
                 first = conn.execute(text("SELECT id FROM taxpayers ORDER BY id LIMIT 1")).scalar()
 
-            # 5. Back-fill taxpayer_id for rows that do not have one.
+            # 6. Back-fill taxpayer_id for rows that do not have one.
             for table in (
                 "accounts", "import_batches", "transactions", "lots",
                 "disposals", "income_events", "fiscal_year_summaries", "fiscal_years",
@@ -90,7 +107,7 @@ def migrate_db() -> None:
                         {"tid": first},
                     )
 
-            # 6. Back-fill Transaction.source from ImportBatch.connector.
+            # 7. Back-fill Transaction.source from ImportBatch.connector.
             if (
                 _table_exists(conn, "transactions")
                 and _column_exists(conn, "transactions", "source")

@@ -24,7 +24,7 @@ def _make_taxpayer_and_account(db, name: str, tax_id: str) -> tuple[Taxpayer, Ac
     db.refresh(taxpayer)
     account = Account(
         taxpayer_id=taxpayer.id, name=f"Cuenta {tax_id}",
-        platform=AccountPlatform.CRYPTO_COM, is_abroad=True,
+        platform=AccountPlatform.CRYPTO_COM_BANK, is_abroad=True,
     )
     db.add(account)
     db.commit()
@@ -47,11 +47,11 @@ def test_joint_declaration_aggregates_bases(db):
     ])
 
     import_excel(
-        db, connector_name="CRYPTO_COM", taxpayer_id=tp1.id, account_id=acc1.id,
+        db, connector_name="CRYPTO_COM_BANK", taxpayer_id=tp1.id, account_id=acc1.id,
         filename="alice.csv", content=content1,
     )
     import_excel(
-        db, connector_name="CRYPTO_COM", taxpayer_id=tp2.id, account_id=acc2.id,
+        db, connector_name="CRYPTO_COM_BANK", taxpayer_id=tp2.id, account_id=acc2.id,
         filename="bob.csv", content=content2,
     )
 

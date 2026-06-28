@@ -6,8 +6,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.models import Taxpayer, Transaction
-from app.schemas import TaxpayerCreate, TaxpayerOut, TaxpayerUpdate
+from app.models import Taxpayer, TaxpayerRewardPreference, Transaction
+from app.schemas import (
+    RewardPreferenceIn,
+    RewardPreferenceOut,
+    TaxpayerCreate,
+    TaxpayerOut,
+    TaxpayerUpdate,
+)
+from app.services import reward_preference_service
 
 router = APIRouter()
 
@@ -62,3 +69,27 @@ def delete_taxpayer(taxpayer_id: int, db: Session = Depends(get_db)):
     db.delete(taxpayer)
     db.commit()
     return {"deleted": True}
+
+
+@router.get("/{taxpayer_id}/reward-preferences", response_model=list[RewardPreferenceOut])
+def list_reward_preferences(taxpayer_id: int, db: Session = Depends(get_db)):
+    taxpayer = db.get(Taxpayer, taxpayer_id)
+    if taxpayer is None:
+        raise HTTPException(404, "Contribuyente no encontrado")
+    prefs = reward_preference_service.get_preferences(db, taxpayer_id)
+    return list(prefs.values())
+
+
+@router.put("/{taxpayer_id}/reward-preferences", response_model=list[RewardPreferenceOut])
+def update_reward_preferences(
+    taxpayer_id: int,
+    payload: list[RewardPreferenceIn],
+    db: Session = Depends(get_db),
+):
+    taxpayer = db.get(Taxpayer, taxpayer_id)
+    if taxpayer is None:
+        raise HTTPException(404, "Contribuyente no encontrado")
+    prefs = reward_preference_service.save_preferences(
+        db, taxpayer_id, [p.model_dump() for p in payload]
+    )
+    return prefs

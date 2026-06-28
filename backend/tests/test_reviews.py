@@ -20,13 +20,13 @@ def _p2p_csv(taxpayer_id: int, account_id: int):
 def test_import_creates_p2p_review_item(client: TestClient):
     tp = client.post("/api/taxpayers", json={"name": "Review Test", "tax_id": "11111111A"}).json()
     acc = client.post("/api/accounts", json={
-        "taxpayer_id": tp["id"], "name": "Crypto.com", "platform": "CRYPTO_COM",
+        "taxpayer_id": tp["id"], "name": "Crypto.com", "platform": "CRYPTO_COM_BANK",
         "type": "EXCHANGE", "is_abroad": True,
     }).json()
 
     client.post(
         "/api/imports",
-        data={"connector": "CRYPTO_COM", "taxpayer_id": tp["id"], "account_id": acc["id"]},
+        data={"connector": "CRYPTO_COM_BANK", "taxpayer_id": tp["id"], "account_id": acc["id"]},
         files={"file": ("p2p.csv", _p2p_csv(tp["id"], acc["id"]), "text/csv")},
     )
 
@@ -42,7 +42,7 @@ def test_fifo_insufficient_balance_creates_review_item(db: Session, taxpayer, ac
 2024-01-01 10:00:00,crypto_viban_exchange,BTC,1,,,20000,EUR
 """
     import_excel(
-        db, connector_name="CRYPTO_COM", taxpayer_id=taxpayer.id, account_id=account.id,
+        db, connector_name="CRYPTO_COM_BANK", taxpayer_id=taxpayer.id, account_id=account.id,
         filename="sell.csv", content=content,
     )
 
@@ -55,12 +55,12 @@ def test_fifo_insufficient_balance_creates_review_item(db: Session, taxpayer, ac
 def test_resolve_p2p_as_own_account(client: TestClient):
     tp = client.post("/api/taxpayers", json={"name": "Resolve Test", "tax_id": "22222222B"}).json()
     acc = client.post("/api/accounts", json={
-        "taxpayer_id": tp["id"], "name": "Crypto.com", "platform": "CRYPTO_COM",
+        "taxpayer_id": tp["id"], "name": "Crypto.com", "platform": "CRYPTO_COM_BANK",
         "type": "EXCHANGE", "is_abroad": True,
     }).json()
     client.post(
         "/api/imports",
-        data={"connector": "CRYPTO_COM", "taxpayer_id": tp["id"], "account_id": acc["id"]},
+        data={"connector": "CRYPTO_COM_BANK", "taxpayer_id": tp["id"], "account_id": acc["id"]},
         files={"file": ("p2p.csv", _p2p_csv(tp["id"], acc["id"]), "text/csv")},
     )
 
@@ -80,12 +80,12 @@ def test_resolve_missing_price_adds_quote(client: TestClient):
     tp = client.post("/api/taxpayers", json={"name": "Price Test", "tax_id": "33333333C"}).json()
     # First create an asset through a tiny import, then generate review for a year with no price.
     acc = client.post("/api/accounts", json={
-        "taxpayer_id": tp["id"], "name": "Crypto.com", "platform": "CRYPTO_COM",
+        "taxpayer_id": tp["id"], "name": "Crypto.com", "platform": "CRYPTO_COM_BANK",
         "type": "EXCHANGE", "is_abroad": True,
     }).json()
     client.post(
         "/api/imports",
-        data={"connector": "CRYPTO_COM", "taxpayer_id": tp["id"], "account_id": acc["id"]},
+        data={"connector": "CRYPTO_COM_BANK", "taxpayer_id": tp["id"], "account_id": acc["id"]},
         files={"file": ("p2p.csv", _p2p_csv(tp["id"], acc["id"]), "text/csv")},
     )
 
@@ -114,12 +114,12 @@ def test_revert_review_returns_to_pending(client: TestClient):
     """Resolving and then reverting a review item leaves it PENDING."""
     tp = client.post("/api/taxpayers", json={"name": "Revert Test", "tax_id": "44444444D"}).json()
     acc = client.post("/api/accounts", json={
-        "taxpayer_id": tp["id"], "name": "Crypto.com", "platform": "CRYPTO_COM",
+        "taxpayer_id": tp["id"], "name": "Crypto.com", "platform": "CRYPTO_COM_BANK",
         "type": "EXCHANGE", "is_abroad": True,
     }).json()
     client.post(
         "/api/imports",
-        data={"connector": "CRYPTO_COM", "taxpayer_id": tp["id"], "account_id": acc["id"]},
+        data={"connector": "CRYPTO_COM_BANK", "taxpayer_id": tp["id"], "account_id": acc["id"]},
         files={"file": ("p2p.csv", _p2p_csv(tp["id"], acc["id"]), "text/csv")},
     )
 
@@ -152,12 +152,12 @@ def test_auto_resolve_matching_reversal(client: TestClient):
     """A reversal that exactly matches a prior reward is auto-resolved on recompute."""
     tp = client.post("/api/taxpayers", json={"name": "Auto Reversal", "tax_id": "55555555E"}).json()
     acc = client.post("/api/accounts", json={
-        "taxpayer_id": tp["id"], "name": "Crypto.com", "platform": "CRYPTO_COM",
+        "taxpayer_id": tp["id"], "name": "Crypto.com", "platform": "CRYPTO_COM_BANK",
         "type": "EXCHANGE", "is_abroad": True,
     }).json()
     client.post(
         "/api/imports",
-        data={"connector": "CRYPTO_COM", "taxpayer_id": tp["id"], "account_id": acc["id"]},
+        data={"connector": "CRYPTO_COM_BANK", "taxpayer_id": tp["id"], "account_id": acc["id"]},
         files={"file": ("rev.csv", _reversal_csv(), "text/csv")},
     )
 
@@ -181,7 +181,7 @@ def test_unmatched_reversal_stays_pending(client: TestClient):
     """A reversal with no matching reward remains PENDING."""
     tp = client.post("/api/taxpayers", json={"name": "Unmatched Reversal", "tax_id": "66666666F"}).json()
     acc = client.post("/api/accounts", json={
-        "taxpayer_id": tp["id"], "name": "Crypto.com", "platform": "CRYPTO_COM",
+        "taxpayer_id": tp["id"], "name": "Crypto.com", "platform": "CRYPTO_COM_BANK",
         "type": "EXCHANGE", "is_abroad": True,
     }).json()
     csv = b"""Timestamp (UTC),Transaction Kind,Currency,Amount,To Currency,To Amount,Native Amount,Native Currency
@@ -189,7 +189,7 @@ def test_unmatched_reversal_stays_pending(client: TestClient):
 """
     client.post(
         "/api/imports",
-        data={"connector": "CRYPTO_COM", "taxpayer_id": tp["id"], "account_id": acc["id"]},
+        data={"connector": "CRYPTO_COM_BANK", "taxpayer_id": tp["id"], "account_id": acc["id"]},
         files={"file": ("unmatched.csv", csv, "text/csv")},
     )
 

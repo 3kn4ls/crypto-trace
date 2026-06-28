@@ -207,6 +207,7 @@ def add_opening_position(
         taxpayer_id=taxpayer_id,
         account_id=acc.id, timestamp=acquired_at, type=TransactionType.DEPOSIT,
         asset_in_id=asset.id, amount_in=quantity, eur_value=cost_basis_eur,
+        cost_basis_eur=cost_basis_eur,
         price_source="opening", fiscal_year=acquired_at.year, notes="Posición de apertura",
         external_id=f"opening-{taxpayer_id}-{asset.symbol}-{acquired_at.date()}",
     )

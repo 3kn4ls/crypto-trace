@@ -1,9 +1,9 @@
-"""Crypto.com App export connector.
+"""Crypto.com App / Bank / Card export connector.
 
 PROVISIONAL layout based on the typical Crypto.com App CSV/XLSX export
 (``Timestamp (UTC)``, ``Currency``/``Amount``, ``To Currency``/``To Amount``,
 ``Native Amount`` in the user's fiat, ``Transaction Kind``). Column names and
-the ``type_map`` live in ``mappings/crypto_com.yaml`` — adjust them to a real
+the ``type_map`` live in ``mappings/crypto_com_bank.yaml`` — adjust them to a real
 export and the rest of the system is unaffected.
 """
 from __future__ import annotations
@@ -24,10 +24,10 @@ _ACQUIRE_ONLY = {
 
 
 @register
-class CryptoComConnector(BaseConnector):
-    source = AccountPlatform.CRYPTO_COM
-    name = "CRYPTO_COM"
-    mapping_file = "crypto_com.yaml"
+class CryptoComBankConnector(BaseConnector):
+    source = AccountPlatform.CRYPTO_COM_BANK
+    name = "CRYPTO_COM_BANK"
+    mapping_file = "crypto_com_bank.yaml"
 
     FIAT = "EUR"
 

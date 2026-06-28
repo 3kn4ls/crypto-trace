@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
-from app.models.enums import AccountPlatform, AccountType
+from app.models.enums import AccountPlatform, AccountType, IncomeCategory, TransactionType
 
 
 class TaxpayerCreate(BaseModel):
@@ -69,3 +69,25 @@ class PriceQuoteIn(BaseModel):
     date: datetime
     price_eur: Decimal
     source: str = "manual"
+
+
+class RewardPreferenceIn(BaseModel):
+    transaction_type: TransactionType
+    income_category: IncomeCategory
+    zero_cost_basis: bool = False
+
+
+class RewardPreferenceOut(BaseModel):
+    id: int | None = None
+    taxpayer_id: int
+    transaction_type: TransactionType
+    income_category: IncomeCategory
+    zero_cost_basis: bool
+
+    model_config = {"from_attributes": True}
+
+
+class TransactionUpdateIn(BaseModel):
+    cost_basis_eur: Decimal | None = None
+    is_internal_transfer: bool | None = None
+    notes: str | None = None

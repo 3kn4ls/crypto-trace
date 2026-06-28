@@ -34,7 +34,7 @@ def recompute_all(db: Session) -> dict:
     txs = list(
         db.scalars(select(Transaction).order_by(Transaction.timestamp, Transaction.id))
     )
-    moves, incomes = build_ledger(txs)
+    moves, incomes = build_ledger(db, txs)
     result = run_fifo(moves)
 
     # Build a lookup from transaction id to its taxpayer for derived rows.

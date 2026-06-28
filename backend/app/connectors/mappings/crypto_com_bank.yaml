@@ -1,4 +1,4 @@
-# Crypto.com App export mapping (PROVISIONAL).
+# Crypto.com App / Bank / Card export mapping (PROVISIONAL).
 # Adjust column names and type_map to your real export; no code change needed.
 sheet: 0
 header_row: 1

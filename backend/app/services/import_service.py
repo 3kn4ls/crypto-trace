@@ -18,6 +18,7 @@ from app.models import (
     ImportBatch,
     ImportStatus,
     Transaction,
+    TransactionType,
 )
 from app.services.recompute import recompute_all
 
@@ -115,6 +116,15 @@ def import_excel(
     return batch
 
 
+_ACQUISITION_TYPES = {
+    TransactionType.BUY,
+    TransactionType.DEPOSIT,
+    TransactionType.STAKING_REWARD,
+    TransactionType.REFERRAL,
+    TransactionType.AIRDROP,
+}
+
+
 def _to_orm(
     db: Session,
     asset_cache: dict[str, Asset],
@@ -128,6 +138,12 @@ def _to_orm(
     asset_in = _get_or_create_asset(db, asset_cache, ct.asset_in)
     asset_out = _get_or_create_asset(db, asset_cache, ct.asset_out)
     fee_asset = _get_or_create_asset(db, asset_cache, ct.fee_asset)
+    # The connector can supply an explicit cost basis; otherwise, acquisition-like
+    # transactions inherit the EUR value of the operation as their cost basis so
+    # the explicit field is populated and editable from the UI.
+    cost_basis = ct.cost_basis_eur
+    if cost_basis is None and ct.type in _ACQUISITION_TYPES:
+        cost_basis = ct.eur_value
     return Transaction(
         taxpayer_id=taxpayer_id,
         account_id=account_id,
@@ -140,6 +156,7 @@ def _to_orm(
         fee_asset_id=fee_asset.id if fee_asset else None,
         fee_amount=ct.fee_amount,
         eur_value=ct.eur_value,
+        cost_basis_eur=cost_basis,
         price_source=ct.price_source,
         external_id=ct.external_id,
         import_batch_id=batch_id,
@@ -147,4 +164,5 @@ def _to_orm(
         raw_json=json.dumps(ct.raw, ensure_ascii=False, default=str) if ct.raw else None,
         fiscal_year=year,
         notes=ct.notes,
+        is_internal_transfer=ct.type == TransactionType.TRANSFER,
     )

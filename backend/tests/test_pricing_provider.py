@@ -42,7 +42,7 @@ def test_fetch_history_eur_parses_response():
 def test_fetch_historical_prices_endpoint(client: TestClient):
     tp = client.post("/api/taxpayers", json={"name": "Price Fetch", "tax_id": "77777777G"}).json()
     acc = client.post("/api/accounts", json={
-        "taxpayer_id": tp["id"], "name": "Crypto.com", "platform": "CRYPTO_COM",
+        "taxpayer_id": tp["id"], "name": "Crypto.com", "platform": "CRYPTO_COM_BANK",
         "type": "EXCHANGE", "is_abroad": True,
     }).json()
     content = b"""Timestamp (UTC),Transaction Kind,Currency,Amount,To Currency,To Amount,Native Amount,Native Currency
@@ -51,7 +51,7 @@ def test_fetch_historical_prices_endpoint(client: TestClient):
 """
     client.post(
         "/api/imports",
-        data={"connector": "CRYPTO_COM", "taxpayer_id": tp["id"], "account_id": acc["id"]},
+        data={"connector": "CRYPTO_COM_BANK", "taxpayer_id": tp["id"], "account_id": acc["id"]},
         files={"file": ("btc.csv", content, "text/csv")},
     )
 

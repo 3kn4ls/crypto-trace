@@ -125,6 +125,8 @@ class Transaction(Base):
 
     # Best-known EUR value of the operation at the time (for valuing swaps/income).
     eur_value: Mapped[Decimal | None] = mapped_column(DecimalText, nullable=True)
+    # Explicit cost basis for DEPOSIT/opening positions (overrides eur_value).
+    cost_basis_eur: Mapped[Decimal | None] = mapped_column(DecimalText, nullable=True)
     price_source: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     external_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
@@ -133,6 +135,8 @@ class Transaction(Base):
     raw_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     fiscal_year: Mapped[int] = mapped_column(Integer, index=True)
     notes: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    # TRANSFERs are internal by default; setting False makes a debit P2P a taxable disposal.
+    is_internal_transfer: Mapped[bool] = mapped_column(Boolean, default=True)
 
     taxpayer: Mapped["Taxpayer"] = relationship()
     asset_in: Mapped[Asset | None] = relationship(foreign_keys=[asset_in_id])
@@ -286,6 +290,27 @@ class ReviewItem(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     transaction: Mapped["Transaction"] = relationship(foreign_keys=[transaction_id])
+    taxpayer: Mapped["Taxpayer"] = relationship()
+
+
+class TaxpayerRewardPreference(Base):
+    """Per-taxpayer fiscal treatment of reward-like transactions.
+
+    Allows the user to configure whether staking, cashback/referrals and airdrops
+    are treated as RCM, ganancia patrimonial, or zero-cost basis (descuento).
+    """
+
+    __tablename__ = "taxpayer_reward_preferences"
+    __table_args__ = (
+        UniqueConstraint("taxpayer_id", "transaction_type", name="uq_reward_pref_taxpayer_type"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    taxpayer_id: Mapped[int] = mapped_column(ForeignKey("taxpayers.id"), index=True)
+    transaction_type: Mapped[TransactionType] = mapped_column(String(24), index=True)
+    income_category: Mapped[IncomeCategory] = mapped_column(String(16))
+    zero_cost_basis: Mapped[bool] = mapped_column(Boolean, default=False)
+
     taxpayer: Mapped["Taxpayer"] = relationship()
 
 

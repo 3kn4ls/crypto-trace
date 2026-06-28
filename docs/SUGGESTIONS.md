@@ -1,4 +1,4 @@
-# Sugerencias y cuestiones abiertas — conector Crypto.com (CSV)
+# Sugerencias y cuestiones abiertas — conector Crypto.com Bank (CSV)
 
 > Documento de trabajo creado al integrar el primer conector real
 > (`informes/crypto_transactions_record_*.csv`). Recoge **lo que se ha
@@ -15,8 +15,21 @@ y recompensas asociadas.
 - **Importación de CSV** (antes solo XLSX). El conector autodetecta el formato
   por contenido (XLSX = ZIP `PK…`; el resto se lee como CSV). Mismo conector
   para ambos formatos. → `connectors/base.py`.
+- **Tratamiento fiscal configurable de recompensas** (`services/reward_preference_service.py`):
+  staking, cashback/referidos y airdrops pueden clasificarse como RCM, ganancia patrimonial
+  o actividad, y opcionalmente entrar en FIFO con base cero (descuento). Las preferencias
+  se editan por contribuyente en `Taxpayers → Preferencias` y persisten en
+  `taxpayer_reward_preferences`.
+- **Envíos P2P a terceros como enajenación**: las transferencias `TRANSFER` con nota P2P
+  se importan neutras por defecto y se marcan para revisión. Desde `Reviews` se pueden
+  resolver como `MARK_THIRD_PARTY_SEND` para que el débito retire unidades del FIFO
+  con base de coste cero. La acción `MARK_OWN_ACCOUNT` mantiene el comportamiento neutro.
+- **Coste de adquisición explícito**: `Transaction.cost_basis_eur` permite a los
+  depósitos/aperturas llevar su coste real. Se expone en la API (`PATCH /api/transactions/{id}`)
+  y en la UI (`Transactions → Editar`). El endpoint de posición de apertura lo rellena
+  automáticamente.
 - **Mapeo completo de los 13 _Transaction Kind_** presentes en tu export: ya no
-  hay filas con error «Transaction Kind no soportado». → `mappings/crypto_com.yaml`.
+  hay filas con error «Transaction Kind no soportado». → `mappings/crypto_com_bank.yaml`.
 - **Cashback** (`referral_card_cashback`) y demás recompensas → **ingreso** a
   valor de mercado (EUR de la columna *Native Amount*) + alta de lote FIFO.
 - **Reversión de cashback** (`card_cashback_reverted`, importes negativos):
@@ -46,8 +59,8 @@ insuficiente, ~7.543 CRO en cartera.
 ## 2. Decisiones fiscales — **conviene que las confirmes**
 
 La calificación fiscal de las cripto-recompensas en España **no es pacífica**.
-He tomado defaults razonables y configurables, pero estas son las que más te
-afectan en este fichero:
+He tomado defaults razonables y **configurables por contribuyente** desde la UI/API.
+Ajusta las preferencias (`Taxpayers → Preferencias`) antes de cerrar un ejercicio.
 
 ### 2.1 Cashback de tarjeta → actualmente **RCM** (rendimiento del capital mobiliario)
 Es la partida más grande (240 movimientos). Hay dos lecturas posibles:
@@ -56,17 +69,16 @@ Es la partida más grande (240 movimientos). Hay dos lecturas posibles:
 - **Descuento/rebaja** sobre tu propio consumo → **no tributa** como ingreso;
   el CRO entraría con coste 0 y solo tributaría al venderlo.
 
-  👉 *Decisión tuya.* Si lo prefieres como descuento, habría que cambiar el
-  mapeo y el `IncomeSpec`. Hoy queda como RCM.
+  👉 *Decisión tuya.* En la UI/API (`Taxpayers → Preferencias`) puedes cambiar
+  `REFERRAL` a **base cero**; el CRO entrará con coste 0 y solo tributará al venderlo.
 
 ### 2.2 Mystery Box / Welcome Bonus (`rewards_platform_deposit_credited`) → **RCM**
-Lo he equiparado al cashback (REFERRAL→RCM). Podría defenderse mejor como
-**ganancia patrimonial sin valor de adquisición** (base general) o como airdrop.
-Si lo quieres así, mapéalo a `AIRDROP` (→ `GANANCIA`).
+Lo he equiparado al cashback (`REFERRAL → RCM`). Puedes cambiarlo en las
+preferencias a `AIRDROP` (→ `GANANCIA`) o a base cero.
 
 ### 2.3 Recompensas de staking/pool (`supercharger_reward`, `dpos…interest`) → **RCM**
-Criterio mayoritario. Sin cambios sugeridos, salvo que tu asesor prefiera
-ganancia patrimonial.
+Criterio mayoritario. Puedes reclasificarlo como `GANANCIA` o `ACTIVIDAD`,
+o marcarlo como base cero desde las preferencias.
 
 ### 2.4 Reversión de cashback → **RCM negativo + retirada de unidades**
 - Asume que la reversión es del **mismo ejercicio** que el cashback original
@@ -84,10 +96,9 @@ naturaleza, y cada una tributa distinto:
 - **Pago** por bienes/servicios → ingreso (recibido) o enajenación (entregado).
 
   👉 *Decisión tuya, movimiento a movimiento.* Hoy se importan como `TRANSFER`
-  neutro y con nota «P2P con tercero: revisar…». **Implicación FIFO** del default
-  neutro: el envío (debit) **no retira** unidades y el ingreso (credit) **no crea
-  base de coste**. Si en realidad son envíos a terceros, la cartera quedaría
-  sobrevalorada en el neto enviado (~887 CRO brutos). Ver §3.1.
+  neutro y con nota «P2P con tercero: revisar…». Desde `Reviews` resuelve cada
+  envío a tercero con `MARK_THIRD_PARTY_SEND` para que el débito retire unidades
+  del FIFO. Si son entre tus propias wallets, usa `MARK_OWN_ACCOUNT`.
 
 ### 2.6 CRO bloqueado en staking/tarjeta sigue contando para el **Modelo 721**
 Los locks son `TRANSFER` (no salen de tu patrimonio). Asegúrate de que el saldo
@@ -97,20 +108,17 @@ a 31/12 del 721 incluya el CRO bloqueado (hoy sí, porque los lotes permanecen).
 
 ## 3. Huecos del modelo / robustez (recomendaciones)
 
-### 3.1 `WITHDRAWAL`/salidas no retiran unidades (FIFO global)
-El diseño actual asume que todo `WITHDRAWAL`/`TRANSFER` es interno entre cuentas
-propias, por eso **no descuenta de la cola FIFO**. Para un **envío real a un
-tercero** eso sobrevalora la cartera y puede hacer que ventas futuras consuman
-lotes inexistentes. Recomendación: introducir un campo de **contraparte / "¿cuenta
-propia?"** por transacción (o por tipo) y una salida que sí retire unidades
-cuando proceda. Encaja con §2.5.
+### 3.1 `WITHDRAWAL`/salidas no retiran unidades (FIFO global) ✅ Implementado
+Las `TRANSFER` se importan como internas por defecto. Para un **envío real a un
+tercero**, resuelve el aviso P2P con `MARK_THIRD_PARTY_SEND`: el débito se
+convierte en una disposición (`DISPOSE`) que consume lotes FIFO. Si no se resuelve,
+la cartera queda sobrevalorada. Ver §2.5.
 
-### 3.2 Coste de adquisición en `crypto_deposit`
-Un depósito de cripto desde fuera no debería tomar el valor de mercado del día
-como coste (el coste real es el de su compra original). Hoy `DEPOSIT` crea lote
-solo si hay `eur_value`. Conviene distinguir **depósito interno** (sin base, FIFO
-global) de **adquisición externa** (con base conocida que el usuario aporta).
-*No afecta a este CSV* (no hay `crypto_deposit`), pero saldrá con otros exchanges.
+### 3.2 Coste de adquisición en `crypto_deposit` ✅ Implementado
+`Transaction.cost_basis_eur` permite a los depósitos/aperturas llevar su coste
+real. La UI (`Transactions → Editar`) y la API (`PATCH /api/transactions/{id}`)
+permiten ajustarlo; el endpoint de posición de apertura lo rellena
+automáticamente. Si no se indica, `DEPOSIT` sigue usando `eur_value`.
 
 ### 3.3 Deduplicación de exports sin id
 Mitigada (incluye valor EUR + ocurrencia). Pero un **export incremental** (mismo
@@ -151,7 +159,7 @@ Valorar integrar una fuente (p. ej. CoinGecko, ids ya sembrados en los activos).
 En `informes/` solo está el **export de la Crypto.com App** (incluye los
 movimientos de la **tarjeta**: cashback, etc.). **No hay un extracto bancario
 fiat aparte.** Si por "banco" te refieres a:
-- **La tarjeta Crypto.com** → ya queda cubierta por este conector.
+- **La tarjeta Crypto.com** → ya queda cubierta por el conector `CRYPTO_COM_BANK`.
 - **Un extracto de banco tradicional** (entradas/salidas de EUR, compras SEPA a
   un exchange) → es **otro conector** distinto; aporta el CSV y lo diseñamos
   (normalmente solo afecta a aportaciones/retiradas de fiat, no genera lotes
@@ -169,5 +177,5 @@ cd backend && .venv/Scripts/python -m pytest -q
 
 # Vía la app (http://localhost:5173): pestaña Importar →
 #   1) crea cuenta "Crypto.com" (marca "en el extranjero" para el 721)
-#   2) conector CRYPTO_COM, sube el .csv → Importar
+#   2) conector CRYPTO_COM_BANK, sube el .csv → Importar
 ```

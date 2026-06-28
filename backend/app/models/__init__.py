@@ -27,6 +27,7 @@ from app.models.orm import (
     ReviewItem,
     TaxBracket,
     Taxpayer,
+    TaxpayerRewardPreference,
     Transaction,
 )
 
@@ -55,6 +56,7 @@ __all__ = [
     "SummarySource",
     "TaxBracket",
     "Taxpayer",
+    "TaxpayerRewardPreference",
     "Transaction",
     "TransactionType",
 ]

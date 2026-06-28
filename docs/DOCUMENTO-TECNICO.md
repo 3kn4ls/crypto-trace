@@ -157,7 +157,7 @@ Todas las cantidades, importes EUR y costes unitarios se almacenan como texto. L
 - `eur_value`: valor de mercado en EUR de la operación, usado para valorar permutas y rentas.
 - `external_id`: identificador del exchange o sintético (hash de contenido) para deduplicación.
 - `fiscal_year`: año impositivo derivado de `timestamp.year`.
-- `source`: origen de la importación, copiado desde `ImportBatch.connector` (p. ej. `CRYPTO_COM`, `REVOLUT_EXCHANGE`).
+- `source`: origen de la importación, copiado desde `ImportBatch.connector` (p. ej. `CRYPTO_COM_BANK`, `REVOLUT_EXCHANGE`).
 
 Restricciones de unicidad:
 - `uq_accounts_taxpayer_name` sobre `(taxpayer_id, name)`.
@@ -172,7 +172,7 @@ Definidos en `backend/app/models/enums.py`:
 | Enum | Valores | Uso |
 |------|---------|-----|
 | `AssetKind` | `CRYPTO`, `STABLECOIN` (se grava como cripto), `FIAT` | Clasificación del activo. |
-| `AccountPlatform` | `CRYPTO_COM`, `REVOLUT`, `MANUAL`, `WALLET` | Plataforma asociada a una cuenta. |
+| `AccountPlatform` | `CRYPTO_COM_BANK`, `REVOLUT`, `MANUAL`, `WALLET` | Plataforma asociada a una cuenta. |
 | `AccountType` | `EXCHANGE`, `WALLET` | Tipo de cuenta. |
 | `TransactionType` | `BUY`, `SELL`, `SWAP`, `DEPOSIT`, `WITHDRAWAL`, `STAKING_REWARD`, `AIRDROP`, `REFERRAL`, `SPEND`, `FEE`, `TRANSFER`, `REVERSAL` | Tipos canónicos de movimiento. |
 | `DisposalKind` | `SALE`, `SWAP`, `SPEND` | Naturaleza de la enajenación. |
@@ -320,7 +320,7 @@ class CanonicalTransaction:
 
 | Conector | Fichero | Mapping | Estado |
 |----------|---------|---------|--------|
-| `CRYPTO_COM` | `crypto_com.py` | `crypto_com.yaml` | Implementado para App/exchange; soporta 13+ tipos incluyendo cashback, reversión, transfers internos/P2P. **PROVISIONAL**; ajustar con export real. |
+| `CRYPTO_COM_BANK` | `crypto_com.py` | `crypto_com.yaml` | Implementado para App/exchange; soporta 13+ tipos incluyendo cashback, reversión, transfers internos/P2P. **PROVISIONAL**; ajustar con export real. |
 | `CRYPTO_EXCHANGE` | `crypto_exchange.py` | `crypto_exchange.yaml` | Implementado para el journal de Crypto.com Exchange (`OEX_TRANSACTION_*`). Agrupa filas por `Order ID`, colapsa múltiples fills en una sola operación, convierte `USD_Stable_Coin` a EUR vía Frankfurter y emite `BUY`/`SELL` canónicos. **PROVISIONAL**. |
 | `REVOLUT` | `revolut.py` | `revolut.yaml` | Implementado para el informe de ganancias/pérdidas de Revolut (`Date acquired`, `Date sold`, `Symbol`, `Quantity`, `Cost basis`, `Gross proceeds`, `Fees`, `Currency`). Cada fila genera un `BUY` + un `SELL` ordenados cronológicamente. Convierte USD a EUR usando el tipo de cambio oficial del BCE (Frankfurter) para cada fecha; usa `fallback_usd_to_eur_rate` si la API no responde. |
 | `REVOLUT_EXCHANGE` | `revolut_exchange.py` | `revolut_exchange.yaml` | Esqueleto implementado. **PROVISIONAL**. |
@@ -421,6 +421,8 @@ Routers montados bajo `/api` en `backend/app/api/__init__.py`.
 | GET/POST | `/accounts` | CRUD de cuentas (filtrado/creación por `taxpayer_id`). |
 | POST | `/imports` | Subir fichero CSV/XLSX (requiere `taxpayer_id`). |
 | GET | `/imports` | Listar lotes de importación (filtrado por `taxpayer_id`). |
+| DELETE | `/imports/{batch_id}?taxpayer_id=...` | Eliminar un lote de importación, borrar sus transacciones y recalcular el estado derivado. Comprueba que el lote pertenezca al contribuyente. |
+| DELETE | `/imports?taxpayer_id=...` | Borrar todas las importaciones y transacciones de un contribuyente ("limpiar base de datos"). |
 | GET | `/transactions` | Listar transacciones (`?taxpayer_id=` o `?taxpayer_ids=`). Incluye `taxpayer_id` y `source`. |
 | GET | `/reviews` | Avisos de revisión (`?taxpayer_id=&status=&category=&year=`). |
 | GET | `/reviews/summary` | Conteos de avisos por estado/categoría. |
@@ -452,7 +454,7 @@ La documentación interactiva está disponible en `/docs` (Swagger UI de FastAPI
 - Páginas:
   - **Dashboard**: panel de control con selector de año fiscal, KPIs de patrimonio, ganancias realizadas, impuestos, ingresos, avisos y Modelo 721; gráficos de evolución fiscal, evolución del patrimonio a cierre de año, distribución de cartera, ingresos por categoría, transacciones por tipo y avisos por estado; tablas de top activos, últimas transacciones y avisos pendientes. Incluye un botón "Cargar precios históricos (CoinGecko)" que invoca `POST /api/prices/fetch-historical` para valorar la cartera y el Modelo 721 con los cierres de 31/12. Alimentado por `GET /api/reports/dashboard`.
   - **Taxpayers**: CRUD de contribuyentes.
-  - **ImportPage**: creación de cuentas con `taxpayer_id`, selector de conector, selector de fichero (`<input type="file">`), histórico de importaciones; requiere contribuyente seleccionado.
+  - **ImportPage**: creación de cuentas con `taxpayer_id`, selector de conector, selector de fichero (`<input type="file">`), histórico de importaciones con botón "Eliminar" por lote y botón "Limpiar todo" para borrar todas las importaciones y transacciones del contribuyente seleccionado; ambos requieren confirmación y recalculan el estado derivado automáticamente.
   - **Transactions**: listado filtrado por contribuyentes seleccionados; muestra columnas `taxpayer_id` y `source`; enlace a la pantalla Revisar si tiene aviso.
   - **Reviews**: bandeja única de avisos con resumen, filtros, acciones inline (cuenta propia, aceptar base 0, añadir cotización, etc.) y resolución masiva.
   - **FiscalYears**: listado de ejercicios filtrado por contribuyente(s), cierre/reapertura por contribuyente, y desglose de tramos impositivos; en modo conjunto calcula el resultado agregado.
@@ -516,8 +518,9 @@ Ubicados en `backend/tests/`:
 - `test_revolut.py`: conector Revolut para informe de ganancias/pérdidas (`BUY`+`SELL` por fila, comisiones, orden cronológico, import del fichero real en `informes/`); usa contribuyente.
 - `test_crypto_exchange.py`: conector Crypto.com Exchange (agrupación por `Order ID`, conversión USD→EUR, comisiones en crypto y en fiat, import del fichero real en `informes/`); usa contribuyente.
 - `test_pricing_provider.py`: descubrimiento dinámico de IDs de CoinGecko y carga de cotizaciones históricas.
+- `test_import_deletion.py`: eliminación de un lote de importación, limpieza completa de un contribuyente, protección de borrado cruzado entre contribuyentes, y re-importación tras borrar (HTTP end-to-end con `TestClient`).
 
-En total el proyecto contiene **43 funciones de test** (+ skips si algún CSV real de muestra no está presente).
+En total el proyecto contiene **49 funciones de test** (+ skips si algún CSV real de muestra no está presente).
 
 Ejecución:
 ```bash
@@ -570,17 +573,18 @@ Un depósito solo crea lote FIFO si se proporciona `eur_value`. Esto permite dis
 - Backend FastAPI completo con modelo de datos, motor FIFO, impuestos y API.
 - Soporte multi-contribuyente con `Taxpayer`, `taxpayer_id` en todas las entidades y declaración conjunta.
 - Cada transacción vinculada a contribuyente y origen de importación (`source`).
-- Conector `CRYPTO_COM` funcional para export CSV/XLSX con cashback, reversión, staking, P2P.
+- Conector `CRYPTO_COM_BANK` funcional para export CSV/XLSX con cashback, reversión, staking, P2P.
 - Conector `CRYPTO_EXCHANGE` funcional para el journal de Crypto.com Exchange (agrupación por `Order ID`, USD→EUR).
 - Conector `REVOLUT` funcional para el informe de ganancias/pérdidas de Revolut (USD, round-trip por fila).
 - Conector `REVOLUT_EXCHANGE` esqueleto.
 - Frontend funcional con 6 pantallas, selector global de contribuyente y dashboard completo con KPIs, filtros y gráficos; incluye botón para cargar precios históricos de CoinGecko.
+- Botones de eliminación de importaciones y limpieza de base de datos por contribuyente en la pantalla Importar.
 - Docker Compose operativo.
-- 43 funciones de test (+ skips por muestras reales no presentes).
+- 49 funciones de test (+ skips por muestras reales no presentes).
 
 ### 17.2 Tarea pendiente inmediata
 
-**Conector Crypto.com BANK / exchange efectivo**: según `docs/ESTADO.md`, renombrar `CRYPTO_COM` → `CRYPTO_COM_EXCHANGE` y crear `CRYPTO_COM_BANK` para el extracto bancario/tarjeta, cubriendo todos los tipos de movimiento.
+**Conector Crypto.com BANK / exchange efectivo**: según `docs/ESTADO.md`, renombrar `CRYPTO_COM_BANK` → `CRYPTO_COM_BANK_EXCHANGE` y crear `CRYPTO_COM_BANK_BANK` para el extracto bancario/tarjeta, cubriendo todos los tipos de movimiento.
 
 ### 17.3 Mejoras identificadas
 

@@ -37,7 +37,7 @@ def _build_xlsx() -> bytes:
 def _account(db, taxpayer_id: int) -> Account:
     acc = Account(
         name="Crypto.com", taxpayer_id=taxpayer_id,
-        platform=AccountPlatform.CRYPTO_COM, is_abroad=True,
+        platform=AccountPlatform.CRYPTO_COM_BANK, is_abroad=True,
     )
     db.add(acc)
     db.commit()
@@ -56,7 +56,7 @@ def test_import_creates_transactions_and_fifo(db):
     taxpayer = _taxpayer(db)
     acc = _account(db, taxpayer.id)
     batch = import_excel(
-        db, connector_name="CRYPTO_COM", taxpayer_id=taxpayer.id, account_id=acc.id,
+        db, connector_name="CRYPTO_COM_BANK", taxpayer_id=taxpayer.id, account_id=acc.id,
         filename="cdc.xlsx", content=_build_xlsx(),
     )
     assert batch.inserted_count == 5
@@ -83,11 +83,11 @@ def test_reimport_is_idempotent(db):
     acc = _account(db, taxpayer.id)
     content = _build_xlsx()
     import_excel(
-        db, connector_name="CRYPTO_COM", taxpayer_id=taxpayer.id,
+        db, connector_name="CRYPTO_COM_BANK", taxpayer_id=taxpayer.id,
         account_id=acc.id, filename="cdc.xlsx", content=content,
     )
     batch2 = import_excel(
-        db, connector_name="CRYPTO_COM", taxpayer_id=taxpayer.id,
+        db, connector_name="CRYPTO_COM_BANK", taxpayer_id=taxpayer.id,
         account_id=acc.id, filename="cdc.xlsx", content=content,
     )
     assert batch2.inserted_count == 0

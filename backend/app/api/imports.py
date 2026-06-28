@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.models import Account, ImportBatch, Taxpayer
+from app.models import Account, ImportBatch, Taxpayer, Transaction
 from app.services.import_service import import_excel
+from app.services.recompute import recompute_all
 
 router = APIRouter()
 
@@ -49,6 +50,54 @@ def list_batches(
     if taxpayer_id is not None:
         q = q.where(ImportBatch.taxpayer_id == taxpayer_id)
     return [_batch_dict(b) for b in db.scalars(q)]
+
+
+@router.delete("/{batch_id}")
+def delete_batch(
+    batch_id: int,
+    taxpayer_id: int = Query(...),
+    db: Session = Depends(get_db),
+) -> dict:
+    batch = db.get(ImportBatch, batch_id)
+    if batch is None:
+        raise HTTPException(404, f"Importación {batch_id} no encontrada")
+    if batch.taxpayer_id != taxpayer_id:
+        raise HTTPException(403, "La importación no pertenece al contribuyente seleccionado")
+
+    db.execute(
+        delete(Transaction).where(
+            Transaction.import_batch_id == batch_id,
+            Transaction.taxpayer_id == taxpayer_id,
+        )
+    )
+    db.delete(batch)
+    db.flush()
+    result = recompute_all(db)
+    return {"deleted": True, "batch_id": batch_id, "recomputed": result}
+
+
+@router.delete("")
+def clear_imports(
+    taxpayer_id: int = Query(...),
+    db: Session = Depends(get_db),
+) -> dict:
+    if db.get(Taxpayer, taxpayer_id) is None:
+        raise HTTPException(404, f"Contribuyente {taxpayer_id} no existe")
+
+    tx_count = db.execute(
+        delete(Transaction).where(Transaction.taxpayer_id == taxpayer_id)
+    ).rowcount
+    batch_count = db.execute(
+        delete(ImportBatch).where(ImportBatch.taxpayer_id == taxpayer_id)
+    ).rowcount
+    db.flush()
+    result = recompute_all(db)
+    return {
+        "deleted": True,
+        "transactions_deleted": tx_count,
+        "batches_deleted": batch_count,
+        "recomputed": result,
+    }
 
 
 def _batch_dict(b: ImportBatch) -> dict:

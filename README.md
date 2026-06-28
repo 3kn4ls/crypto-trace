@@ -35,7 +35,7 @@ Un conector **solo traduce** el Excel de cada exchange al modelo canónico
 impuestos y los informes trabajan solo sobre el modelo canónico. Añadir un
 exchange = añadir un conector, sin tocar la lógica fiscal.
 
-- Conectores: `CRYPTO_COM`, `REVOLUT_EXCHANGE` (en `backend/app/connectors/`).
+- Conectores: `CRYPTO_COM_BANK` (App/tarjeta Crypto.com), `CRYPTO_EXCHANGE` (Crypto.com Exchange) y `REVOLUT_EXCHANGE` (en `backend/app/connectors/`).
 - El mapeo de columnas y la traducción de tipos viven en YAML
   (`backend/app/connectors/mappings/*.yaml`): **provisionales**, ajústalos a tus
   ficheros reales sin tocar código.
@@ -89,8 +89,9 @@ cd backend && . .venv/bin/activate && pytest -q
 ```
 
 Cubren el motor FIFO (venta simple, permuta, multi-lote parcial, saldo
-insuficiente, orden cronológico), el cálculo de impuestos (tramos, compensación)
-y el flujo de importación end-to-end (idempotencia) y la API.
+insuficiente, orden cronológico), el cálculo de impuestos (tramos, compensación),
+el flujo de importación end-to-end (idempotencia), la API, la eliminación de
+importaciones y los conectores Crypto.com Bank/Exchange y Revolut Exchange.
 
 ## Flujo de uso
 

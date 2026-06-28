@@ -9,6 +9,17 @@ interface Taxpayer {
   tax_id: string | null;
 }
 
+interface RewardPreference {
+  id?: number;
+  taxpayer_id: number;
+  transaction_type: string;
+  income_category: string;
+  zero_cost_basis: boolean;
+}
+
+const REWARD_TYPES = ["STAKING_REWARD", "REFERRAL", "AIRDROP"];
+const INCOME_CATEGORIES = ["RCM", "GANANCIA", "ACTIVIDAD"];
+
 export default function Taxpayers() {
   const qc = useQueryClient();
   const { refresh } = useTaxpayers();
@@ -51,6 +62,39 @@ export default function Taxpayers() {
       refresh();
     },
   });
+
+  const [prefsTaxpayer, setPrefsTaxpayer] = useState<Taxpayer | null>(null);
+
+  const prefs = useQuery({
+    queryKey: ["reward-preferences", prefsTaxpayer?.id],
+    queryFn: () => api.get(`/taxpayers/${prefsTaxpayer!.id}/reward-preferences`),
+    enabled: !!prefsTaxpayer,
+  });
+
+  const savePrefs = useMutation({
+    mutationFn: (payload: RewardPreference[]) =>
+      api.put(`/taxpayers/${prefsTaxpayer!.id}/reward-preferences`, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["reward-preferences", prefsTaxpayer?.id] });
+    },
+  });
+
+  const ensureDefaults = (rows: RewardPreference[]): RewardPreference[] => {
+    const existing = new Set(rows.map((r) => r.transaction_type));
+    const defaults: RewardPreference[] = REWARD_TYPES.filter((t) => !existing.has(t)).map((t) => ({
+      taxpayer_id: prefsTaxpayer!.id,
+      transaction_type: t,
+      income_category: t === "STAKING_REWARD" || t === "REFERRAL" ? "RCM" : "GANANCIA",
+      zero_cost_basis: false,
+    }));
+    return [...rows, ...defaults];
+  };
+
+  const updatePref = (type: string, patch: Partial<RewardPreference>) => {
+    const current = ensureDefaults((prefs.data ?? []) as RewardPreference[]);
+    const next = current.map((r) => (r.transaction_type === type ? { ...r, ...patch } : r));
+    savePrefs.mutate(next);
+  };
 
   return (
     <>
@@ -108,6 +152,9 @@ export default function Taxpayers() {
                   <button className="ghost" onClick={() => setEditing(t)} style={{ marginRight: 8 }}>
                     Editar
                   </button>
+                  <button className="ghost" onClick={() => setPrefsTaxpayer(t)} style={{ marginRight: 8 }}>
+                    Preferencias
+                  </button>
                   <button className="ghost" onClick={() => remove.mutate(t.id)}>Borrar</button>
                 </td>
               </tr>
@@ -118,6 +165,49 @@ export default function Taxpayers() {
           <p className="muted">Sin contribuyentes. Crea al menos uno para empezar.</p>
         )}
       </div>
+
+      {prefsTaxpayer && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="flex-between">
+            <h3>Preferencias fiscales: {prefsTaxpayer.name}</h3>
+            <button className="ghost" onClick={() => setPrefsTaxpayer(null)}>Cerrar</button>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Tipo</th>
+                <th>Categoría</th>
+                <th>Base cero (descuento)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ensureDefaults((prefs.data ?? []) as RewardPreference[]).map((r) => (
+                <tr key={r.transaction_type}>
+                  <td>{r.transaction_type}</td>
+                  <td>
+                    <select
+                      value={r.income_category}
+                      onChange={(e) => updatePref(r.transaction_type, { income_category: e.target.value })}
+                    >
+                      {INCOME_CATEGORIES.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={r.zero_cost_basis}
+                      onChange={(e) => updatePref(r.transaction_type, { zero_cost_basis: e.target.checked })}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {savePrefs.isError && <p className="error">{String(savePrefs.error)}</p>}
+        </div>
+      )}
     </>
   );
 }

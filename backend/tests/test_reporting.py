@@ -15,12 +15,12 @@ def _sample_csv() -> bytes:
 def test_dashboard_returns_expected_keys(client: TestClient):
     tp = client.post("/api/taxpayers", json={"name": "Dash Test", "tax_id": "55555555E"}).json()
     acc = client.post("/api/accounts", json={
-        "taxpayer_id": tp["id"], "name": "Crypto.com", "platform": "CRYPTO_COM",
+        "taxpayer_id": tp["id"], "name": "Crypto.com", "platform": "CRYPTO_COM_BANK",
         "type": "EXCHANGE", "is_abroad": True,
     }).json()
     client.post(
         "/api/imports",
-        data={"connector": "CRYPTO_COM", "taxpayer_id": tp["id"], "account_id": acc["id"]},
+        data={"connector": "CRYPTO_COM_BANK", "taxpayer_id": tp["id"], "account_id": acc["id"]},
         files={"file": ("dash.csv", _sample_csv(), "text/csv")},
     )
 
@@ -64,12 +64,12 @@ def test_dashboard_returns_expected_keys(client: TestClient):
 def test_dashboard_filters_by_year(client: TestClient):
     tp = client.post("/api/taxpayers", json={"name": "Dash Year", "tax_id": "66666666F"}).json()
     acc = client.post("/api/accounts", json={
-        "taxpayer_id": tp["id"], "name": "Crypto.com", "platform": "CRYPTO_COM",
+        "taxpayer_id": tp["id"], "name": "Crypto.com", "platform": "CRYPTO_COM_BANK",
         "type": "EXCHANGE", "is_abroad": True,
     }).json()
     client.post(
         "/api/imports",
-        data={"connector": "CRYPTO_COM", "taxpayer_id": tp["id"], "account_id": acc["id"]},
+        data={"connector": "CRYPTO_COM_BANK", "taxpayer_id": tp["id"], "account_id": acc["id"]},
         files={"file": ("dash.csv", _sample_csv(), "text/csv")},
     )
 

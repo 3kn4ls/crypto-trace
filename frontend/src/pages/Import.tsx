@@ -55,6 +55,31 @@ export default function ImportPage() {
     },
   });
 
+  const deleteBatch = useMutation({
+    mutationFn: (batchId: number) =>
+      api.del(`/imports/${batchId}?taxpayer_id=${importTaxpayerId}`),
+    onSuccess: () => qc.invalidateQueries(),
+  });
+
+  const clearAll = useMutation({
+    mutationFn: () => api.del(`/imports?taxpayer_id=${importTaxpayerId}`),
+    onSuccess: () => qc.invalidateQueries(),
+  });
+
+  const handleDeleteBatch = (batchId: number) => {
+    if (!window.confirm("¿Eliminar esta importación? Se borrarán sus transacciones y se recalculará todo el estado derivado.")) {
+      return;
+    }
+    deleteBatch.mutate(batchId);
+  };
+
+  const handleClearAll = () => {
+    if (!window.confirm("¿Borrar TODAS las importaciones y transacciones de este contribuyente? Esta acción no se puede deshacer.")) {
+      return;
+    }
+    clearAll.mutate();
+  };
+
   return (
     <>
       <h2>Importar movimientos (CSV / Excel)</h2>
@@ -128,7 +153,18 @@ export default function ImportPage() {
       </div>
 
       <div className="card">
-        <h3>Importaciones</h3>
+        <div className="flex-between">
+          <h3>Importaciones</h3>
+          <button
+            className="danger"
+            onClick={handleClearAll}
+            disabled={!importTaxpayerId || !(batches.data ?? []).length || clearAll.isPending}
+          >
+            Limpiar todo
+          </button>
+        </div>
+        {deleteBatch.isError && <p className="error">{String(deleteBatch.error)}</p>}
+        {clearAll.isError && <p className="error">{String(clearAll.error)}</p>}
         <table>
           <thead>
             <tr>
@@ -139,6 +175,7 @@ export default function ImportPage() {
               <th>Insertadas</th>
               <th>Duplicadas</th>
               <th>Estado</th>
+              <th>Acciones</th>
             </tr>
           </thead>
           <tbody>
@@ -151,6 +188,15 @@ export default function ImportPage() {
                 <td>{b.inserted_count}</td>
                 <td>{b.duplicate_count}</td>
                 <td>{b.status}</td>
+                <td>
+                  <button
+                    className="small danger"
+                    onClick={() => handleDeleteBatch(b.id)}
+                    disabled={deleteBatch.isPending && deleteBatch.variables === b.id}
+                  >
+                    Eliminar
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>

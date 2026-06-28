@@ -48,7 +48,7 @@ def _taxpayer(db) -> Taxpayer:
 def _account(db, taxpayer_id: int) -> Account:
     acc = Account(
         name="Crypto.com", taxpayer_id=taxpayer_id,
-        platform=AccountPlatform.CRYPTO_COM, is_abroad=True,
+        platform=AccountPlatform.CRYPTO_COM_BANK, is_abroad=True,
     )
     db.add(acc)
     db.commit()
@@ -70,7 +70,7 @@ def test_cashback_then_reversal_nets_income_and_removes_units(db):
         "2025-03-02 10:00:00,Card Cashback Reversal,CRO,-40,,,EUR,4,5,card_cashback_reverted,",
     )
     batch = import_excel(
-        db, connector_name="CRYPTO_COM", taxpayer_id=taxpayer.id, account_id=acc.id,
+        db, connector_name="CRYPTO_COM_BANK", taxpayer_id=taxpayer.id, account_id=acc.id,
         filename="cdc.csv", content=content,
     )
     assert batch.inserted_count == 2
@@ -104,7 +104,7 @@ def test_internal_and_p2p_transfers_have_no_fiscal_effect(db):
         "2025-04-05 10:00:00,Sent to Nancy,CRO,-100,CRO,100,EUR,-10,-11,transfer.p2p_transfer.crypto_wallet.crypto_wallet.debit,",
     )
     batch = import_excel(
-        db, connector_name="CRYPTO_COM", taxpayer_id=taxpayer.id, account_id=acc.id,
+        db, connector_name="CRYPTO_COM_BANK", taxpayer_id=taxpayer.id, account_id=acc.id,
         filename="cdc.csv", content=content,
     )
     assert batch.inserted_count == 5
@@ -152,13 +152,13 @@ def test_real_crypto_com_export_imports_cleanly():
     session.refresh(taxpayer)
 
     acc = Account(name="Crypto.com", taxpayer_id=taxpayer.id,
-                  platform=AccountPlatform.CRYPTO_COM, is_abroad=True)
+                  platform=AccountPlatform.CRYPTO_COM_BANK, is_abroad=True)
     session.add(acc)
     session.commit()
     session.refresh(acc)
 
     batch = import_excel(
-        session, connector_name="CRYPTO_COM", taxpayer_id=taxpayer.id, account_id=acc.id,
+        session, connector_name="CRYPTO_COM_BANK", taxpayer_id=taxpayer.id, account_id=acc.id,
         filename=REAL_CSV.name, content=REAL_CSV.read_bytes(),
     )
 

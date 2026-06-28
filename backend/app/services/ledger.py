@@ -6,8 +6,8 @@ each leg in EUR. Swaps become a DISPOSE of the asset given plus an ACQUIRE of
 the asset received. Income (staking/airdrop/referral) becomes both an ACQUIRE
 (new lot at fair market value) and an :class:`IncomeSpec` for the tax layer.
 
-Internal movements (DEPOSIT without a cost basis, WITHDRAWAL, TRANSFER) are
-ignored because FIFO is tracked globally across the taxpayer's accounts.
+Internal movements (DEPOSIT without a cost basis, WITHDRAWAL, internal TRANSFER)
+are ignored because FIFO is tracked globally across the taxpayer's accounts.
 """
 from __future__ import annotations
 
@@ -19,17 +19,19 @@ from app.core.money import ZERO, to_decimal
 from app.models import IncomeCategory, Transaction, TransactionType
 from app.models.enums import DisposalKind
 from app.services.fifo_engine import LedgerMove, MoveType
+from app.services.reward_preference_service import category_for, is_zero_cost_basis
 
-INCOME_CATEGORY_MAP: dict[TransactionType, IncomeCategory] = {
-    TransactionType.STAKING_REWARD: IncomeCategory.RCM,
-    TransactionType.REFERRAL: IncomeCategory.RCM,
-    TransactionType.AIRDROP: IncomeCategory.GANANCIA,
+_INCOME_TYPES = {
+    TransactionType.STAKING_REWARD,
+    TransactionType.REFERRAL,
+    TransactionType.AIRDROP,
 }
 
 _DISPOSAL_KIND_MAP = {
     TransactionType.SELL: DisposalKind.SALE,
     TransactionType.SWAP: DisposalKind.SWAP,
     TransactionType.SPEND: DisposalKind.SPEND,
+    TransactionType.TRANSFER: DisposalKind.SALE,
 }
 
 
@@ -74,9 +76,34 @@ def _disposal_proceeds(tx: Transaction) -> Decimal:
     return proceeds - _fee_eur(tx)
 
 
-def build_ledger(transactions: list[Transaction]) -> tuple[list[LedgerMove], list[IncomeSpec]]:
+def build_ledger(
+    db,
+    transactions: list[Transaction],
+) -> tuple[list[LedgerMove], list[IncomeSpec]]:
+    """Build ledger moves and income specs from canonical transactions.
+
+    ``db`` is passed through so reward-preference lookups can be done lazily.
+    """
     moves: list[LedgerMove] = []
     incomes: list[IncomeSpec] = []
+
+    # Cache per-taxpayer reward preferences to avoid repeated queries.
+    pref_cache: dict[int, dict[TransactionType, IncomeCategory]] = {}
+    zero_cache: dict[int, dict[TransactionType, bool]] = {}
+
+    def _reward_category(taxpayer_id: int, tx_type: TransactionType) -> IncomeCategory:
+        if taxpayer_id not in pref_cache:
+            pref_cache[taxpayer_id] = {}
+        if tx_type not in pref_cache[taxpayer_id]:
+            pref_cache[taxpayer_id][tx_type] = category_for(db, taxpayer_id, tx_type)
+        return pref_cache[taxpayer_id][tx_type]
+
+    def _reward_zero_cost(taxpayer_id: int, tx_type: TransactionType) -> bool:
+        if taxpayer_id not in zero_cache:
+            zero_cache[taxpayer_id] = {}
+        if tx_type not in zero_cache[taxpayer_id]:
+            zero_cache[taxpayer_id][tx_type] = is_zero_cost_basis(db, taxpayer_id, tx_type)
+        return zero_cache[taxpayer_id][tx_type]
 
     for seq, tx in enumerate(transactions):
         t = tx.type
@@ -98,19 +125,23 @@ def build_ledger(transactions: list[Transaction]) -> tuple[list[LedgerMove], lis
             if tx.asset_in_id and not _is_fiat(tx.asset_in):
                 moves.append(LedgerMove(seq, tx.timestamp, tx.asset_in_id, MoveType.ACQUIRE,
                                         to_decimal(tx.amount_in), market, tx.id))
-        elif t in INCOME_CATEGORY_MAP:
+        elif t in _INCOME_TYPES:
             fmv = to_decimal(tx.eur_value)
+            basis = ZERO if _reward_zero_cost(tx.taxpayer_id, t) else fmv
             if tx.asset_in_id and not _is_fiat(tx.asset_in):
                 moves.append(LedgerMove(seq, tx.timestamp, tx.asset_in_id, MoveType.ACQUIRE,
-                                        to_decimal(tx.amount_in), fmv, tx.id))
-                incomes.append(IncomeSpec(tx.id, tx.asset_in_id, tx.timestamp,
-                                          to_decimal(tx.amount_in), fmv,
-                                          INCOME_CATEGORY_MAP[t], tx.fiscal_year))
+                                        to_decimal(tx.amount_in), basis, tx.id))
+                if not _reward_zero_cost(tx.taxpayer_id, t):
+                    incomes.append(IncomeSpec(tx.id, tx.asset_in_id, tx.timestamp,
+                                              to_decimal(tx.amount_in), fmv,
+                                              _reward_category(tx.taxpayer_id, t), tx.fiscal_year))
         elif t == TransactionType.DEPOSIT:
             # Only an acquisition if a cost basis is known (opening/external buy).
-            if tx.asset_in_id and not _is_fiat(tx.asset_in) and tx.eur_value:
-                moves.append(LedgerMove(seq, tx.timestamp, tx.asset_in_id, MoveType.ACQUIRE,
-                                        to_decimal(tx.amount_in), to_decimal(tx.eur_value), tx.id))
+            if tx.asset_in_id and not _is_fiat(tx.asset_in):
+                basis = tx.cost_basis_eur if tx.cost_basis_eur is not None else tx.eur_value
+                if basis:
+                    moves.append(LedgerMove(seq, tx.timestamp, tx.asset_in_id, MoveType.ACQUIRE,
+                                            to_decimal(tx.amount_in), to_decimal(basis), tx.id))
         elif t == TransactionType.REVERSAL:
             # Clawback of a previously credited reward: remove the units with no
             # gain/loss and back out the income it had generated (assumed RCM,
@@ -122,6 +153,17 @@ def build_ledger(transactions: list[Transaction]) -> tuple[list[LedgerMove], lis
                 fmv = to_decimal(tx.eur_value)
                 incomes.append(IncomeSpec(tx.id, tx.asset_out_id, tx.timestamp,
                                           -qty, -fmv, IncomeCategory.RCM, tx.fiscal_year))
-        # WITHDRAWAL / TRANSFER / FEE: internal or embedded -> no move.
+        elif t == TransactionType.TRANSFER:
+            # Internal transfers have no fiscal effect. A transfer to a third
+            # party (marked via review action) is treated as a disposal of the
+            # asset sent; credits from third parties remain neutral and flagged
+            # for manual review because their fiscal nature (donation, payment,
+            # etc.) cannot be inferred automatically.
+            if not tx.is_internal_transfer:
+                if tx.asset_out_id and not _is_fiat(tx.asset_out) and tx.amount_out:
+                    moves.append(LedgerMove(seq, tx.timestamp, tx.asset_out_id, MoveType.DISPOSE,
+                                            to_decimal(tx.amount_out), ZERO, tx.id,
+                                            DisposalKind.SALE))
+        # WITHDRAWAL / FEE: internal or embedded -> no move.
 
     return moves, incomes

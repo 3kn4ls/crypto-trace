@@ -43,6 +43,7 @@ class CanonicalTransaction:
     fee_asset: str | None = None
     fee_amount: Decimal | None = None
     eur_value: Decimal | None = None
+    cost_basis_eur: Decimal | None = None
     price_source: str | None = None
     notes: str | None = None
     raw: dict[str, Any] = field(default_factory=dict)

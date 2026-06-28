@@ -390,11 +390,17 @@ def resolve_item(
     if action == "CREATE_OPENING_POSITION":
         _create_opening_position(db, item, payload or {})
 
+    if action in {"MARK_OWN_ACCOUNT", "MARK_THIRD_PARTY_SEND", "MARK_PAYMENT"}:
+        _apply_p2p_resolution(db, item, action)
+
     item.status = ReviewStatus.RESOLVED.value if action != "IGNORE" else ReviewStatus.IGNORED.value
     item.resolution_action = action
     item.resolution_note = note
     item.resolved_at = datetime.utcnow()
     db.commit()
+    # Local import to avoid a circular dependency with the recompute module.
+    from app.services.recompute import recompute_all
+    recompute_all(db)
     return item
 
 
@@ -419,6 +425,24 @@ def revert_item(db: Session, item_id: int) -> ReviewItem:
     item.resolved_at = None
     db.commit()
     return item
+
+
+def _apply_p2p_resolution(db: Session, item: ReviewItem, action: str) -> None:
+    """Record the user's intent for a P2P transfer review item.
+
+    - MARK_OWN_ACCOUNT: movement between the taxpayer's own wallets/exchanges;
+      no fiscal effect (is_internal_transfer = True).
+    - MARK_THIRD_PARTY_SEND / MARK_PAYMENT: asset left the taxpayer's control;
+      treated as a taxable disposal when the transfer debits crypto.
+    """
+    if item.transaction_id is None:
+        raise ValueError(f"{action} requiere una transacción asociada")
+    tx = db.get(Transaction, item.transaction_id)
+    if tx is None:
+        raise ValueError("Transacción asociada no encontrada")
+    if tx.type != TransactionType.TRANSFER:
+        raise ValueError("Solo las transacciones de tipo TRANSFER pueden resolverse como P2P")
+    tx.is_internal_transfer = action == "MARK_OWN_ACCOUNT"
 
 
 def _add_price_quote(db: Session, payload: dict) -> None:

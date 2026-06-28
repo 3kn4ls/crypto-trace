@@ -42,7 +42,7 @@ def taxpayer(db):
 def account(db, taxpayer):
     from app.models import Account
     account = Account(
-        taxpayer_id=taxpayer.id, name="Test Account", platform="CRYPTO_COM",
+        taxpayer_id=taxpayer.id, name="Test Account", platform="CRYPTO_COM_BANK",
         type="EXCHANGE", is_abroad=True,
     )
     db.add(account)

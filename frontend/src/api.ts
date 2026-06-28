@@ -24,6 +24,12 @@ export const api = {
       body: body === undefined ? undefined : JSON.stringify(body),
     }).then(handle),
   del: (path: string) => fetch(`${BASE}${path}`, { method: "DELETE" }).then(handle),
+  patch: (path: string, body?: unknown) =>
+    fetch(`${BASE}${path}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    }).then(handle),
   upload: (path: string, form: FormData) =>
     fetch(`${BASE}${path}`, { method: "POST", body: form }).then(handle),
 };
