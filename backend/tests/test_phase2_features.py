@@ -140,6 +140,9 @@ def test_export_summary_csv(client: TestClient):
 
 
 def test_export_transactions_pdf(client: TestClient):
+    import pytest
+
+    pytest.importorskip("fpdf", reason="fpdf2 no instalado; el export PDF se omite")
     taxpayer = client.post("/api/taxpayers", json={"name": "Export PDF"}).json()
     tp_id = taxpayer["id"]
     client.post("/api/accounts", json={

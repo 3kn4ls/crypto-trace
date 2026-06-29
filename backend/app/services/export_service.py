@@ -14,6 +14,12 @@ from app.models import Account, Asset, Transaction
 from app.services import model721_service, reporting_service
 
 
+class PdfExportUnavailable(RuntimeError):
+    """Raised when PDF export is requested but the optional ``fpdf2`` dependency
+    is not installed. The API turns this into a 503 with a helpful message; CSV
+    export never depends on ``fpdf2``."""
+
+
 def _fmt_dec(v: Any) -> str:
     if v is None:
         return ""
@@ -252,7 +258,13 @@ def _build_pdf(
     col_widths: list[float],
     subtitle: str | None = None,
 ) -> tuple[bytes, str]:
-    from fpdf import FPDF
+    try:
+        from fpdf import FPDF
+    except ImportError as exc:  # optional dependency
+        raise PdfExportUnavailable(
+            "La exportación a PDF requiere el paquete 'fpdf2'. "
+            "Instálalo (pip install fpdf2) o exporta a CSV."
+        ) from exc
 
     pdf = FPDF(orientation="L", unit="mm", format="A4")
     pdf.set_auto_page_break(auto=True, margin=15)

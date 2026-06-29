@@ -21,8 +21,8 @@ Los hallazgos más relevantes:
 |---|-----------|----------|------|
 | 1.1 | ~~Alta~~ ✅ **Resuelto** | La reversión (`REVERSAL`) siempre restaba RCM aunque la recompensa fuera "ganancia" o de base cero | Corrección fiscal |
 | 1.2 | ~~Alta~~ ✅ **Resuelto** | Editar/borrar transacciones recalculaba también años **cerrados**: el resumen congelado dejaba de coincidir con el cálculo en vivo | Corrección |
-| 1.3 | Media | `PATCH /transactions/{id}` no valida contribuyente, año cerrado ni coherencia del nuevo tipo | Robustez |
-| 1.4 | Media | `fpdf2` no está en el venv local → 1 test rojo y el export PDF responde 500 si falta la dependencia | Entorno / robustez |
+| 1.3 | ~~Media~~ ✅ **Resuelto** | `PATCH /transactions/{id}` no validaba año cerrado ni coherencia del nuevo tipo | Robustez |
+| 1.4 | ~~Media~~ ✅ **Resuelto** | `fpdf2` ausente daba un test rojo y un 500 del export PDF | Entorno / robustez |
 | 1.5 | Media | Los avisos `MISSING_PRICE` no se generan en el recompute, solo bajo petición explícita | Funcional |
 | 1.6 | Baja | `account_balances` / Modelo 721 pueden descuadrar con transferencias entre cuentas propias | Edge case |
 | 1.7 | Baja | El `external_id` sintético es frágil ante exports **incrementales** | Conocido |
@@ -103,7 +103,16 @@ columna `tax_due_eur`) y el cálculo **en vivo** (`/tax`) de un año cerrado pue
   toque un año cerrado se bloquea (como ya hace la importación).
 - Como mínimo, mostrar en la UI cuándo el snapshot y el cálculo en vivo difieren.
 
-### 1.3 [Media] `PATCH /transactions/{id}` sin validaciones
+### 1.3 [Media] `PATCH /transactions/{id}` sin validaciones — ✅ Resuelto (2026-06-29)
+
+> **Resuelto.** `patch_transaction` rechaza ahora editar transacciones de años
+> cerrados (`409`, ver §1.2) y valida la **coherencia del nuevo tipo** con las
+> patas existentes (`_validate_type`): un tipo de adquisición exige activo cripto
+> de entrada, uno de enajenación exige cripto de salida, `SWAP` ambos y `TRANSFER`
+> al menos uno; reclasificaciones incoherentes devuelven `400`. Tests en
+> `backend/tests/test_patch_and_export_robustness.py`. *No aplica* la comprobación
+> de contribuyente: el endpoint no recibe un contribuyente seleccionado y la app es
+> monousuario; quedaría pendiente solo si se añade aislamiento multi-contribuyente real.
 
 `api/transactions.py::patch_transaction`:
 
@@ -119,7 +128,13 @@ columna `tax_due_eur`) y el cálculo **en vivo** (`/tax`) de un año cerrado pue
 **Recomendación:** validar pertenencia al contribuyente, rechazar ediciones en
 años cerrados y comprobar que el nuevo tipo es coherente con las patas presentes.
 
-### 1.4 [Media] Dependencia `fpdf2` y export PDF
+### 1.4 [Media] Dependencia `fpdf2` y export PDF — ✅ Resuelto (2026-06-29)
+
+> **Resuelto.** El test del PDF usa `pytest.importorskip("fpdf")` (se omite si no
+> está instalado, en vez de fallar) y `export_service._build_pdf` lanza
+> `PdfExportUnavailable` si falta `fpdf2`, que el endpoint traduce a un `503` con
+> mensaje claro ("instala fpdf2 o exporta a CSV"); el CSV nunca depende de `fpdf2`.
+> Tests en `backend/tests/test_patch_and_export_robustness.py`.
 
 `pytest` falla en `test_phase2_features.py::test_export_transactions_pdf` con
 `ModuleNoFoundError: No module named 'fpdf'`. La dependencia **sí** está en

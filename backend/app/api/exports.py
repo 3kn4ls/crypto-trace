@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.services.export_service import (
+    PdfExportUnavailable,
     export_model721_csv,
     export_model721_pdf,
     export_summary_csv,
@@ -41,25 +42,28 @@ def export_scope(
     db: Session = Depends(get_db),
 ):
     ids = _get_taxpayer_ids(taxpayer_id, taxpayer_ids)
-    if scope == "summary":
-        if format == "csv":
-            data, filename = export_summary_csv(db, taxpayer_ids=ids, year=year)
+    try:
+        if scope == "summary":
+            if format == "csv":
+                data, filename = export_summary_csv(db, taxpayer_ids=ids, year=year)
+            else:
+                data, filename = export_summary_pdf(db, taxpayer_ids=ids, year=year)
+        elif scope == "transactions":
+            if format == "csv":
+                data, filename = export_transactions_csv(db, taxpayer_ids=ids, year=year)
+            else:
+                data, filename = export_transactions_pdf(db, taxpayer_ids=ids, year=year)
+        elif scope == "model721":
+            if year is None:
+                raise HTTPException(400, "Modelo 721 requiere el parámetro year")
+            if format == "csv":
+                data, filename = export_model721_csv(db, year=year, taxpayer_ids=ids)
+            else:
+                data, filename = export_model721_pdf(db, year=year, taxpayer_ids=ids)
         else:
-            data, filename = export_summary_pdf(db, taxpayer_ids=ids, year=year)
-    elif scope == "transactions":
-        if format == "csv":
-            data, filename = export_transactions_csv(db, taxpayer_ids=ids, year=year)
-        else:
-            data, filename = export_transactions_pdf(db, taxpayer_ids=ids, year=year)
-    elif scope == "model721":
-        if year is None:
-            raise HTTPException(400, "Modelo 721 requiere el parámetro year")
-        if format == "csv":
-            data, filename = export_model721_csv(db, year=year, taxpayer_ids=ids)
-        else:
-            data, filename = export_model721_pdf(db, year=year, taxpayer_ids=ids)
-    else:
-        raise HTTPException(400, f"Ámbito de exportación no soportado: {scope}")
+            raise HTTPException(400, f"Ámbito de exportación no soportado: {scope}")
+    except PdfExportUnavailable as exc:
+        raise HTTPException(503, str(exc)) from exc
 
     media_type = _MEDIA_TYPES.get(format, "application/octet-stream")
     return StreamingResponse(
