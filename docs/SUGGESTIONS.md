@@ -80,10 +80,16 @@ preferencias a `AIRDROP` (→ `GANANCIA`) o a base cero.
 Criterio mayoritario. Puedes reclasificarlo como `GANANCIA` o `ACTIVIDAD`,
 o marcarlo como base cero desde las preferencias.
 
-### 2.4 Reversión de cashback → **RCM negativo + retirada de unidades**
-- Asume que la reversión es del **mismo ejercicio** que el cashback original
-  (en tu fichero siempre lo es, a menudo el mismo segundo). Si alguna vez
-  cruzara de año, habría que ajustar el ejercicio del ingreso negativo.
+### 2.4 Reversión de cashback → **deshace el ingreso de su recompensa par + retirada de unidades**
+- Desde 2026-06-29, la reversión se **empareja** con la recompensa que revierte
+  (`services/reversal_matching.py`, mismo `(contribuyente, cuenta, activo, año)`)
+  y deshace el ingreso en la **misma categoría/base** que esa recompensa: si era
+  RCM resta RCM, si era ganancia resta ganancia, y si era de base cero no resta
+  nada (no hubo ingreso). Cubre reversiones **totales y parciales**.
+- El emparejamiento es **dentro del mismo ejercicio**. Una reversión que cruce de
+  año (recompensa en otro ejercicio) no encuentra par: retira las unidades pero
+  **no** deshace ingreso automáticamente y queda en la bandeja `Reviews` para
+  resolución manual.
 - La retirada consume lotes en orden **FIFO** (los más antiguos), no
   necesariamente el lote del cashback revertido. Como no hay hecho imponible y
   los importes son mínimos, el efecto es inmaterial; se documenta por rigor.

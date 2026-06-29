@@ -25,14 +25,7 @@ from app.models import (
     TransactionType,
 )
 from app.services.fifo_engine import EngineWarning
-
-
-# Income-like transaction types that can be clawed back via REVERSAL.
-_REVERSABLE_REWARD_TYPES = {
-    TransactionType.STAKING_REWARD,
-    TransactionType.REFERRAL,
-    TransactionType.AIRDROP,
-}
+from app.services.reversal_matching import REVERSABLE_REWARD_TYPES, match_reversals
 
 
 # ---------------------------------------------------------------------------
@@ -123,53 +116,32 @@ def auto_resolve_reversals(db: Session, *, taxpayer_id: int | None = None) -> in
     if not items:
         return 0
 
-    # Load reversal transactions referenced by the review items.
-    reversal_tx_ids = {item.transaction_id for item in items if item.transaction_id is not None}
-    reversals = {
-        tx.id: tx
-        for tx in db.scalars(select(Transaction).where(Transaction.id.in_(reversal_tx_ids)))
-        if tx.type == TransactionType.REVERSAL
-    }
-
-    # Build an index of candidate reward transactions per (taxpayer, account, asset, year).
-    # We restrict to income-like types that can be clawed back.
-    q_rewards = select(Transaction).where(Transaction.type.in_(_REVERSABLE_REWARD_TYPES))
+    # Fetch reward + reversal transactions in scope and pair them with the same
+    # shared matcher the FIFO ledger uses, so the inbox and the tax computation
+    # agree on which reversals are matched.
+    q_tx = select(Transaction).where(
+        Transaction.type.in_(REVERSABLE_REWARD_TYPES | {TransactionType.REVERSAL})
+    )
     if taxpayer_id is not None:
-        q_rewards = q_rewards.where(Transaction.taxpayer_id == taxpayer_id)
-    reward_index: dict[tuple, list[Transaction]] = {}
-    for tx in db.scalars(q_rewards):
-        key = (tx.taxpayer_id, tx.account_id, tx.asset_in_id, tx.fiscal_year)
-        reward_index.setdefault(key, []).append(tx)
-    for bucket in reward_index.values():
-        bucket.sort(key=lambda t: t.timestamp)
+        q_tx = q_tx.where(Transaction.taxpayer_id == taxpayer_id)
+    txs = list(db.scalars(q_tx))
+    reversal_map = match_reversals(txs)
+    tx_by_id = {tx.id: tx for tx in txs}
 
     resolved = 0
-    used_rewards: set[int] = set()
     for item in items:
-        rev_tx = reversals.get(item.transaction_id) if item.transaction_id else None
-        if rev_tx is None:
+        if item.transaction_id is None:
             continue
-        key = (rev_tx.taxpayer_id, rev_tx.account_id, rev_tx.asset_out_id, rev_tx.fiscal_year)
-        candidates = reward_index.get(key, [])
-        target_qty = rev_tx.amount_out
-        match = None
-        for cand in candidates:
-            if cand.id in used_rewards:
-                continue
-            if cand.timestamp > rev_tx.timestamp:
-                continue
-            if cand.amount_in == target_qty:
-                match = cand
-                break
-        if match is None:
+        reward_id = reversal_map.get(item.transaction_id)
+        if reward_id is None:
             continue
-        used_rewards.add(match.id)
+        match = tx_by_id.get(reward_id)
         item.status = ReviewStatus.RESOLVED
         item.resolution_action = "AUTO_RESOLVED"
         item.resolution_note = (
             f"Auto-resuelto: emparejado con recompensa previa "
             f"(tx {match.id}, {match.amount_in} {match.asset_in.symbol}, "
-            f"{match.timestamp.date().isoformat()}). Efecto fiscal neto nulo en el ejercicio."
+            f"{match.timestamp.date().isoformat()}). Ingreso deshecho con su misma categoría."
         )
         item.resolved_at = datetime.utcnow()
         resolved += 1
