@@ -19,6 +19,7 @@ from app.services.review_service import (
     auto_resolve_reversals,
     generate_fifo_items,
     generate_manual_items,
+    sync_missing_price_items,
 )
 
 
@@ -107,6 +108,8 @@ def recompute_all(db: Session) -> dict:
     generate_manual_items(db)
     auto_resolve_reversals(db)
     generate_fifo_items(db, result.warnings)
+    # Surface (and clear) Modelo 721 missing-price warnings automatically.
+    sync_missing_price_items(db)
 
     return {
         "lots": len(result.lots),

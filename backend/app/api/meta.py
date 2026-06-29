@@ -14,6 +14,7 @@ from app.models import Asset, Disposal, IncomeEvent, Lot, PriceQuote, Transactio
 from app.schemas import PriceQuoteIn
 from app.services.pricing_provider import coin_id_for, discover_coin_id, fetch_current_eur, fetch_history_eur
 from app.services.pricing_service import upsert_price
+from app.services.review_service import sync_missing_price_items
 
 router = APIRouter()
 
@@ -48,6 +49,8 @@ def add_price(payload: PriceQuoteIn, db: Session = Depends(get_db)) -> dict:
     if asset is None:
         raise HTTPException(404, f"Activo desconocido: {payload.asset_symbol}")
     q = upsert_price(db, asset.id, payload.date.date(), payload.price_eur, payload.source)
+    # Loading a price may clear a Modelo 721 missing-price warning.
+    sync_missing_price_items(db)
     return {"asset": asset.symbol, "date": str(q.date), "price_eur": str(q.price_eur)}
 
 
@@ -126,6 +129,8 @@ def fetch_historical_prices(
             upsert_price(db, asset.id, target, price, source="coingecko")
             fetched.append({"asset": asset.symbol, "year": y, "date": str(target), "price_eur": str(price)})
 
+    # Clear any Modelo 721 missing-price warnings now covered by the new quotes.
+    sync_missing_price_items(db)
     return {"fetched": fetched, "missing": missing, "skipped": skipped, "errors": errors}
 
 

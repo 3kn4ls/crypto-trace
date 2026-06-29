@@ -7,13 +7,15 @@ Review items centralise three kinds of warnings:
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+import re
+from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import (
+    Account,
     Asset,
     PriceQuote,
     ReviewCategory,
@@ -212,6 +214,59 @@ def generate_fifo_items(
     return created
 
 
+def _ensure_missing_price_for_year(
+    db: Session, year: int, taxpayer_ids: list[int] | None
+) -> tuple[set[tuple[int, int]], int]:
+    """Ensure a PENDING MISSING_PRICE item for each *abroad* holding lacking a
+    31/12 price for ``year``.
+
+    Returns ``(still_missing, created)`` where ``still_missing`` is the set of
+    ``(taxpayer_id, asset_id)`` that remain without a price (used by the caller
+    to auto-resolve items that are no longer missing).
+    """
+    from app.services import model721_service
+
+    result = model721_service.compute(db, year, taxpayer_ids=taxpayer_ids)
+    missing: set[tuple[int, int]] = set()
+    created = 0
+    for h in result.get("holdings", []):
+        if not h.get("is_abroad") or h.get("price_eur") is not None:
+            continue
+        asset = db.scalar(select(Asset).where(Asset.symbol == h["asset"].upper()))
+        if asset is None:
+            continue
+        account = db.scalar(select(Account).where(Account.id == h["account_id"]))
+        target_taxpayer = account.taxpayer_id if account else (taxpayer_ids[0] if taxpayer_ids else None)
+        if target_taxpayer is None:
+            continue
+        missing.add((target_taxpayer, asset.id))
+        existing = db.scalar(
+            select(ReviewItem).where(
+                ReviewItem.transaction_id.is_(None),
+                ReviewItem.category == ReviewCategory.MISSING_PRICE,
+                ReviewItem.taxpayer_id == target_taxpayer,
+                ReviewItem.message.ilike(f"%asset_id={asset.id}%"),
+                ReviewItem.message.ilike(f"%31/12/{year}%"),
+            )
+        )
+        if existing is None:
+            db.add(
+                ReviewItem(
+                    transaction_id=None,
+                    taxpayer_id=target_taxpayer,
+                    category=ReviewCategory.MISSING_PRICE,
+                    severity=ReviewSeverity.WARNING,
+                    message=(
+                        f"Falta cotización a 31/12/{year} para {asset.symbol} "
+                        f"(asset_id={asset.id}); el valor del Modelo 721 no se calcula."
+                    ),
+                    status=ReviewStatus.PENDING,
+                )
+            )
+            created += 1
+    return missing, created
+
+
 def generate_missing_price_items(
     db: Session,
     *,
@@ -220,51 +275,66 @@ def generate_missing_price_items(
     taxpayer_ids: list[int] | None = None,
 ) -> int:
     """Create review items for assets held abroad at year-end without a price quote."""
-    from app.services import model721_service
-
     ids = taxpayer_ids if taxpayer_ids else ([taxpayer_id] if taxpayer_id is not None else None)
-    result = model721_service.compute(db, year, taxpayer_ids=ids)
-    created = 0
-    for h in result.get("holdings", []):
-        if h.get("price_eur") is not None:
-            continue
-        asset = db.scalar(select(Asset).where(Asset.symbol == h["asset"].upper()))
-        if asset is None:
-            continue
-        # Find an account for the taxpayer so we can attach the item.
-        from app.models import Account
-        account = db.scalar(select(Account).where(Account.id == h["account_id"]))
-        target_taxpayer = account.taxpayer_id if account else (ids[0] if ids else None)
-        if target_taxpayer is None:
-            continue
-        target_date = date(year, 12, 31)
-        existing = db.scalar(
-            select(ReviewItem).where(
-                ReviewItem.transaction_id.is_(None),
-                ReviewItem.category == ReviewCategory.MISSING_PRICE,
-                ReviewItem.taxpayer_id == target_taxpayer,
-                ReviewItem.message.ilike(f"%asset_id={asset.id}%"),
-                ReviewItem.message.ilike(f"%{year}%"),
-            )
-        )
-        if existing is not None:
-            continue
-        db.add(
-            ReviewItem(
-                transaction_id=None,
-                taxpayer_id=target_taxpayer,
-                category=ReviewCategory.MISSING_PRICE,
-                severity=ReviewSeverity.WARNING,
-                message=(
-                    f"Falta cotización a 31/12/{year} para {asset.symbol} "
-                    f"(asset_id={asset.id}); el valor del Modelo 721 no se calcula."
-                ),
-                status=ReviewStatus.PENDING,
-            )
-        )
-        created += 1
+    _missing, created = _ensure_missing_price_for_year(db, year, ids)
     db.commit()
     return created
+
+
+_MISSING_ASSET_RE = re.compile(r"asset_id=(\d+)")
+_MISSING_YEAR_RE = re.compile(r"31/12/(\d{4})")
+
+
+def _missing_price_key(item: ReviewItem) -> tuple[int, int, int] | None:
+    """Parse ``(taxpayer_id, asset_id, year)`` from a MISSING_PRICE item message."""
+    if item.taxpayer_id is None or not item.message:
+        return None
+    a = _MISSING_ASSET_RE.search(item.message)
+    y = _MISSING_YEAR_RE.search(item.message)
+    if not a or not y:
+        return None
+    return (item.taxpayer_id, int(a.group(1)), int(y.group(1)))
+
+
+def sync_missing_price_items(db: Session) -> dict:
+    """Reconcile MISSING_PRICE items with the current data.
+
+    For every fiscal year with activity, ensure a PENDING item for each abroad
+    holding lacking a 31/12 price, and auto-resolve PENDING items whose price is
+    now available (or whose holding no longer exists at year-end). Called from
+    ``recompute_all`` and after price loads so the Modelo 721 warnings stay in
+    sync without manual intervention.
+    """
+    years = sorted(set(db.scalars(select(Transaction.fiscal_year).distinct())))
+    still_missing: set[tuple[int, int, int]] = set()
+    created = 0
+    for year in years:
+        missing, c = _ensure_missing_price_for_year(db, year, None)
+        created += c
+        for taxpayer_id, asset_id in missing:
+            still_missing.add((taxpayer_id, asset_id, year))
+
+    resolved = 0
+    pending = list(
+        db.scalars(
+            select(ReviewItem).where(
+                ReviewItem.category == ReviewCategory.MISSING_PRICE,
+                ReviewItem.status == ReviewStatus.PENDING,
+            )
+        )
+    )
+    for item in pending:
+        key = _missing_price_key(item)
+        if key is None or key in still_missing:
+            continue
+        item.status = ReviewStatus.RESOLVED
+        item.resolution_action = "PRICE_LOADED"
+        item.resolution_note = "Cotización disponible o sin saldo a 31/12; resuelto automáticamente."
+        item.resolved_at = datetime.utcnow()
+        resolved += 1
+
+    db.commit()
+    return {"created": created, "resolved": resolved}
 
 
 # ---------------------------------------------------------------------------

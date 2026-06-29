@@ -23,7 +23,7 @@ Los hallazgos más relevantes:
 | 1.2 | ~~Alta~~ ✅ **Resuelto** | Editar/borrar transacciones recalculaba también años **cerrados**: el resumen congelado dejaba de coincidir con el cálculo en vivo | Corrección |
 | 1.3 | ~~Media~~ ✅ **Resuelto** | `PATCH /transactions/{id}` no validaba año cerrado ni coherencia del nuevo tipo | Robustez |
 | 1.4 | ~~Media~~ ✅ **Resuelto** | `fpdf2` ausente daba un test rojo y un 500 del export PDF | Entorno / robustez |
-| 1.5 | Media | Los avisos `MISSING_PRICE` no se generan en el recompute, solo bajo petición explícita | Funcional |
+| 1.5 | ~~Media~~ ✅ **Resuelto** | Los avisos `MISSING_PRICE` no se generaban en el recompute, solo bajo petición explícita | Funcional |
 | 1.6 | Baja | `account_balances` / Modelo 721 pueden descuadrar con transferencias entre cuentas propias | Edge case |
 | 1.7 | Baja | El `external_id` sintético es frágil ante exports **incrementales** | Conocido |
 
@@ -148,9 +148,18 @@ Dos mejoras:
   con un mensaje claro ("instala fpdf2 para exportar a PDF"). El CSV no depende
   de fpdf y funciona siempre.
 
-### 1.5 [Media] Avisos de precio ausente no automáticos
+### 1.5 [Media] Avisos de precio ausente no automáticos — ✅ Resuelto (2026-06-29)
 
-`generate_missing_price_items` solo se invoca desde `POST /reviews/generate?year=`.
+> **Resuelto.** Nuevo `review_service.sync_missing_price_items(db)` que el
+> `recompute_all` invoca tras cada recálculo: para cada año con actividad, crea un
+> aviso `MISSING_PRICE` por cada tenencia **en el extranjero** sin cotización a
+> 31/12, y **auto-resuelve** (`PRICE_LOADED`) los avisos cuya cotización ya está
+> disponible o cuyo saldo a fin de año desapareció. Cargar precios (`POST /prices`,
+> `POST /prices/fetch-historical`, o la acción `ADD_PRICE_QUOTE`) también dispara la
+> reconciliación. Se acotó a tenencias `is_abroad` (antes generaba para cualquier
+> activo). Tests en `backend/tests/test_reviews.py`.
+
+`generate_missing_price_items` solo se invocaba desde `POST /reviews/generate?year=`.
 No forma parte de `recompute_all` (que sí genera P2P, reversiones y avisos FIFO).
 Por tanto, tras importar, el Modelo 721 puede tener activos sin cotización a
 31/12 **sin** que aparezca un aviso en la bandeja salvo que el usuario pulse

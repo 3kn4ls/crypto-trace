@@ -94,7 +94,7 @@ Pendiente (detalle y priorización en `docs/ANALISIS.md`):
 - [x] Definir la semántica de "año cerrado": write-lock de años cerrados (ANALISIS §1.2).
 - [x] Validaciones en `PATCH /transactions/{id}`: año cerrado + coherencia del nuevo tipo (ANALISIS §1.3).
 - [x] Export PDF robusto: `importorskip` + `503` claro si falta `fpdf2` (ANALISIS §1.4).
-- [ ] Generar avisos `MISSING_PRICE` también en el recompute (ANALISIS §1.5).
+- [x] Generar (y auto-resolver) avisos `MISSING_PRICE` en el recompute y al cargar precios (ANALISIS §1.5).
 - [ ] Fase 2: `SimulationService` (el motor FIFO ya es puro y reutilizable).
 - [ ] Migraciones Alembic; arrastre real de pérdidas a 4 años; rate limiting CoinGecko.
 - [ ] UI para resumen manual y posición de apertura (hoy solo vía API).
