@@ -20,7 +20,7 @@ Los hallazgos más relevantes:
 | # | Severidad | Hallazgo | Tipo |
 |---|-----------|----------|------|
 | 1.1 | ~~Alta~~ ✅ **Resuelto** | La reversión (`REVERSAL`) siempre restaba RCM aunque la recompensa fuera "ganancia" o de base cero | Corrección fiscal |
-| 1.2 | **Alta** | Editar/borrar transacciones recalcula también años **cerrados**: el resumen congelado deja de coincidir con el cálculo en vivo | Corrección |
+| 1.2 | ~~Alta~~ ✅ **Resuelto** | Editar/borrar transacciones recalculaba también años **cerrados**: el resumen congelado dejaba de coincidir con el cálculo en vivo | Corrección |
 | 1.3 | Media | `PATCH /transactions/{id}` no valida contribuyente, año cerrado ni coherencia del nuevo tipo | Robustez |
 | 1.4 | Media | `fpdf2` no está en el venv local → 1 test rojo y el export PDF responde 500 si falta la dependencia | Entorno / robustez |
 | 1.5 | Media | Los avisos `MISSING_PRICE` no se generan en el recompute, solo bajo petición explícita | Funcional |
@@ -69,7 +69,20 @@ El emparejamiento ya existe en `review_service.auto_resolve_reversals`; conviene
 reutilizar esa lógica para localizar la recompensa original y deshacerla con su
 misma categoría.
 
-### 1.2 [Alta] El cierre de año no congela el cálculo en vivo
+### 1.2 [Alta] El cierre de año no congela el cálculo en vivo — ✅ Resuelto (2026-06-29)
+
+> **Resuelto (write-lock).** Cerrar un año lo deja **de solo lectura**: nuevo
+> `fiscal_year_service.is_year_closed(...)` y guardas que rechazan con `409`/`400`
+> editar/borrar transacciones de un año cerrado (`PATCH /transactions/{id}`,
+> `DELETE /imports/{batch}`, `DELETE /imports`), añadir posiciones de apertura en
+> él (`add_opening_position`) y resolver avisos P2P suyos (`review_service`). Para
+> corregir, se reabre el año. La importación ya saltaba filas de años cerrados.
+> Tests en `backend/tests/test_closed_year_lock.py`.
+>
+> **Matiz (limitación asumida):** se eligió bloquear ediciones, no servir las
+> lecturas desde el snapshot. Persiste un caso raro: editar/importar en un año
+> **abierto anterior** puede alterar el FIFO de un año cerrado posterior. Si en el
+> futuro importa, la opción "lecturas desde snapshot" lo cerraría del todo.
 
 `close_year` congela un `FiscalYearSummary` (snapshot), pero:
 

@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session
 
 from app.connectors import get_connector
 from app.core.db import get_db
-from app.models import Account, ImportBatch, Taxpayer, Transaction
+from app.models import Account, FiscalYear, FiscalYearStatus, ImportBatch, Taxpayer, Transaction
+from app.services.fiscal_year_service import is_year_closed
 from app.services.import_service import import_excel
 from app.services.recompute import recompute_all
 
@@ -114,6 +115,22 @@ def delete_batch(
     if batch.taxpayer_id != taxpayer_id:
         raise HTTPException(403, "La importación no pertenece al contribuyente seleccionado")
 
+    batch_years = set(
+        db.scalars(
+            select(Transaction.fiscal_year).where(
+                Transaction.import_batch_id == batch_id,
+                Transaction.taxpayer_id == taxpayer_id,
+            )
+        )
+    )
+    closed = sorted(y for y in batch_years if is_year_closed(db, taxpayer_id, y))
+    if closed:
+        raise HTTPException(
+            409,
+            f"La importación contiene transacciones de años cerrados {closed}; "
+            "reábrelos antes de eliminarla.",
+        )
+
     db.execute(
         delete(Transaction).where(
             Transaction.import_batch_id == batch_id,
@@ -133,6 +150,20 @@ def clear_imports(
 ) -> dict:
     if db.get(Taxpayer, taxpayer_id) is None:
         raise HTTPException(404, f"Contribuyente {taxpayer_id} no existe")
+
+    closed = sorted(
+        db.scalars(
+            select(FiscalYear.year).where(
+                FiscalYear.taxpayer_id == taxpayer_id,
+                FiscalYear.status == FiscalYearStatus.CLOSED,
+            )
+        )
+    )
+    if closed:
+        raise HTTPException(
+            409,
+            f"El contribuyente tiene años cerrados {closed}; reábrelos antes de limpiar todo.",
+        )
 
     tx_count = db.execute(
         delete(Transaction).where(Transaction.taxpayer_id == taxpayer_id)

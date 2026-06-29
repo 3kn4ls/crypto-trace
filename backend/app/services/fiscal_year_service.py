@@ -56,6 +56,22 @@ def _default_taxpayer_id(db: Session) -> int:
     return taxpayer.id
 
 
+def is_year_closed(db: Session, taxpayer_id: int, year: int) -> bool:
+    """True if the taxpayer's fiscal year is CLOSED (read-only).
+
+    Closing a year is a write-lock: edits/deletes of its transactions and
+    resolutions that would change its derived state are rejected until the year
+    is reopened. This keeps the frozen FiscalYearSummary and the live
+    computation from diverging.
+    """
+    fy = db.scalar(
+        select(FiscalYear).where(
+            FiscalYear.taxpayer_id == taxpayer_id, FiscalYear.year == year
+        )
+    )
+    return fy is not None and fy.status == FiscalYearStatus.CLOSED
+
+
 def compute_year(db: Session, year: int, taxpayer_ids: list[int] | None = None) -> TaxResult:
     q_disposals = select(Disposal.gain_loss_eur).where(Disposal.fiscal_year == year)
     q_incomes = select(IncomeEvent).where(IncomeEvent.fiscal_year == year)
@@ -199,6 +215,10 @@ def add_opening_position(
     cost_basis_eur: Decimal, acquired_at: datetime
 ) -> Transaction:
     """Register an opening lot (a DEPOSIT carrying its EUR cost basis) and recompute."""
+    if is_year_closed(db, taxpayer_id, acquired_at.year):
+        raise ValueError(
+            f"El año {acquired_at.year} está cerrado; reábrelo para añadir posiciones de apertura."
+        )
     asset = db.scalar(select(Asset).where(Asset.symbol == asset_symbol.upper()))
     if asset is None:
         raise ValueError(f"Activo desconocido: {asset_symbol}")

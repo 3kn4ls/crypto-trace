@@ -414,6 +414,14 @@ def _apply_p2p_resolution(db: Session, item: ReviewItem, action: str) -> None:
         raise ValueError("Transacción asociada no encontrada")
     if tx.type != TransactionType.TRANSFER:
         raise ValueError("Solo las transacciones de tipo TRANSFER pueden resolverse como P2P")
+    # Local import avoids a circular dependency (fiscal_year_service -> recompute
+    # -> review_service).
+    from app.services.fiscal_year_service import is_year_closed
+
+    if is_year_closed(db, tx.taxpayer_id, tx.fiscal_year):
+        raise ValueError(
+            f"El año {tx.fiscal_year} está cerrado; reábrelo para reclasificar esta transferencia."
+        )
     tx.is_internal_transfer = action == "MARK_OWN_ACCOUNT"
 
 

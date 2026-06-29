@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db
 from app.models import Transaction
 from app.schemas import TransactionUpdateIn
+from app.services.fiscal_year_service import is_year_closed
 from app.services.recompute import recompute_all
 
 router = APIRouter()
@@ -63,6 +64,10 @@ def patch_transaction(
     tx = db.get(Transaction, tx_id)
     if tx is None:
         raise HTTPException(404, "Transacción no encontrada")
+    if is_year_closed(db, tx.taxpayer_id, tx.fiscal_year):
+        raise HTTPException(
+            409, f"El año {tx.fiscal_year} está cerrado; reábrelo para editar sus transacciones."
+        )
     if payload.type is not None:
         tx.type = payload.type
     if payload.cost_basis_eur is not None:
