@@ -1,0 +1,44 @@
+# Revolut crypto *account statement* (per-operation export, es-ES).
+#
+# One row per movement: Symbol, Type, Quantity, Price, Value, Fees, Date.
+# This is the COMPLETE ledger (deposits, withdrawals, buys, sells, Learn
+# rewards), unlike the "Gains / Losses" report (revolut.yaml), which only lists
+# closed round-trips and therefore can never show current holdings.
+#
+# Quirks handled in code (revolut_crypto.py), not expressible in a flat mapping:
+#   * Monetary cells carry a currency suffix and Spanish formatting, e.g.
+#     "1.681,46$" / "100,00€" ('.' thousands, ',' decimals). The suffix also
+#     selects the currency: '$' rows convert to EUR at the ECB rate for the
+#     row's date (Frankfurter); '€' rows pass through.
+#   * Dates are Spanish: "3 sept 2025, 21:40:50" (note 'sept').
+#   * Pure-fiat funding rows (Symbol EUR/USD) are dropped: not crypto events.
+header_row: 1
+
+columns:
+  symbol: "Symbol"
+  type: "Type"
+  quantity: "Quantity"
+  price: "Price"
+  value: "Value"
+  fees: "Fees"
+  date: "Date"
+
+# Symbols that denote a fiat funding movement (Recepción/Envío/Otro). Rows whose
+# Symbol is one of these are skipped: they carry no crypto and have no fiscal
+# effect (the FIFO engine ignores fiat in/out).
+fiat_symbols:
+  - EUR
+  - USD
+
+# Revolut "Type" -> canonical TransactionType. Matched exactly first; if a value
+# is not listed, a keyword fallback in code still resolves the common verbs
+# (Comprar* -> BUY, Vender*/Venta -> SELL, Recompensa* -> AIRDROP).
+type_map:
+  "Comprar - Revolut X": BUY
+  "Compra": BUY
+  "Vender - Revolut X": SELL
+  "Venta": SELL
+  "Recompensa de Aprende": AIRDROP
+
+# Fallback USD -> EUR rate, used only when the Frankfurter API is unreachable.
+fallback_usd_to_eur_rate: 0.92

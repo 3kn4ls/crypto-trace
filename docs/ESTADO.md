@@ -30,8 +30,9 @@ Stack: **Backend** Python/FastAPI + SQLAlchemy 2.0 + SQLite (Decimal exacto). **
   CSV/XLSX) + `registry.py` (auto-registro con `@register`). Implementados:
   - `CRYPTO_COM_BANK` (App/tarjeta Crypto.com) — `crypto_com_bank.py` / `.yaml`.
   - `CRYPTO_EXCHANGE` (journal de Crypto.com Exchange, agrupa por `Order ID`, USD→EUR) — `crypto_exchange.py`.
-  - `REVOLUT` (informe de ganancias/pérdidas, BUY+SELL por fila, USD→EUR vía BCE/Frankfurter) — `revolut.py`.
-  - `REVOLUT_EXCHANGE` — esqueleto provisional.
+  - `REVOLUT` (informe **Gains/Losses** de ganancias-pérdidas, BUY+SELL por fila, USD→EUR vía BCE/Frankfurter) — `revolut.py`. Solo contiene round-trips **cerrados** ⇒ no refleja el patrimonio vivo.
+  - `REVOLUT_CRYPTO` (**extracto cripto por operación**, es-ES: importes con sufijo `€`/`$`, formato europeo `76.080,34€`, fechas en español `9 abr 2025`, $→EUR vía BCE) — `revolut_crypto.py` / `.yaml`. Es el **ledger completo** (depósitos, retiradas, compras, ventas, recompensas) ⇒ reconstruye el patrimonio actual. Descarta filas puramente fiat (EUR/USD) y trata `Recompensa de Aprende` como AIRDROP.
+  - `REVOLUT_EXCHANGE` — esqueleto provisional (no corresponde a ningún export real).
 - **Importación** (`services/import_service.py`): dedup **idempotente** (`external_id` por cuenta) +
   `services/recompute.py` (recálculo total del FIFO) + puente `services/ledger.py`.
   - **Preview** (`POST /imports/preview`): parsea sin persistir, muestra 10 filas y errores por fila.
@@ -51,10 +52,11 @@ Stack: **Backend** Python/FastAPI + SQLAlchemy 2.0 + SQLite (Decimal exacto). **
   carga de precios y botones de export), Import (con preview), Transactions (con edición inline),
   FiscalYears, Model721, Reviews y Taxpayers (editor de preferencias). Selector global de contribuyente.
 - **Docker**: `docker-compose.yml` + Dockerfiles + nginx (proxy `/api`). App en `:5173`, API en `:8008`.
-- **Tests**: **61 funciones** en `backend/tests/`; **60 en verde** y 1 dependiente de `fpdf2`
-  (instalar la dependencia del `requirements.txt` para que pase). Cubren FIFO, impuestos, import
-  end-to-end (idempotencia), API, eliminación de importaciones, conectores, preferencias fiscales,
-  P2P, coste base, dashboard, pricing y funcionalidades de fase 2.
+- **Tests**: **77 funciones** en `backend/tests/`, **todas en verde** (con `fpdf2` del `requirements.txt`
+  instalado). Cubren FIFO, impuestos, import end-to-end (idempotencia), API, eliminación de
+  importaciones, conectores (incl. `test_revolut_crypto.py`: formato es-ES, divisa mixta $/€, fechas
+  en español y patrimonio no nulo), preferencias fiscales, P2P, coste base, dashboard, pricing y
+  funcionalidades de fase 2.
 
 ## 3. Cómo arrancar
 - **Docker** (recomendado): `docker compose up --build` → http://localhost:5173 (API/docs en `:8008/docs`).

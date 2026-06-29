@@ -26,7 +26,13 @@ def list_connectors() -> list[dict[str, str]]:
 
 def _load_builtin() -> None:
     # Import side-effects register the connectors.
-    from app.connectors import crypto_com_bank, crypto_exchange, revolut, revolut_exchange  # noqa: F401
+    from app.connectors import (  # noqa: F401
+        crypto_com_bank,
+        crypto_exchange,
+        revolut,
+        revolut_crypto,
+        revolut_exchange,
+    )
 
 
 _load_builtin()
