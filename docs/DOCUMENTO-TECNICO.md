@@ -1,7 +1,10 @@
 # Documento técnico — Crypto-Trace
 
 > Aplicación local para la monitorización fiscal de criptomonedas (IRPF España, método FIFO).
-> Versión del documento: 0.1.0 · Rama: `claude/wonderful-gauss-vbd72u` · Fecha: 2026-06-24.
+> Versión del documento: 0.2.0 · Rama: `claude/wonderful-gauss-vbd72u` · Fecha: 2026-06-29.
+>
+> Ver `docs/ANALISIS.md` para errores/mejoras detectados y `docs/ESTADO.md` para el handoff.
+> La sección **§19 (Cambios recientes)** resume las funcionalidades de Fase 2 añadidas tras la 0.1.0.
 
 ## 1. Resumen ejecutivo
 
@@ -239,7 +242,8 @@ class EngineDisposal:
 
 ## 7. Puente contable (`services/ledger.py`)
 
-`build_ledger(transactions)` traduce las `Transaction` del ORM a `LedgerMove` e `IncomeSpec`:
+`build_ledger(db, transactions)` traduce las `Transaction` del ORM a `LedgerMove` e `IncomeSpec`
+(recibe la sesión `db` para resolver las preferencias de recompensas por contribuyente):
 
 | Tipo canónico | Efecto en el motor | Efecto fiscal |
 |---------------|-------------------|---------------|
@@ -252,7 +256,7 @@ class EngineDisposal:
 | `REVERSAL` | `REMOVE` de unidades + `IncomeSpec(RCM negativo)` | Retirada de unidades sin ganancia/pérdida; deshace renta previamente computada. |
 | `TRANSFER` / `WITHDRAWAL` / `FEE` | Sin movimiento | Asumidos internos o comisiones ya reflejadas en otra pata. |
 
-La clasificación de rentas es configurable en `INCOME_CATEGORY_MAP`. Esto permite adaptar el tratamiento fiscal sin alterar el modelo de datos.
+La clasificación de rentas es **configurable por contribuyente** mediante `services/reward_preference_service.py` (tabla `taxpayer_reward_preferences`): `STAKING_REWARD`, `REFERRAL` y `AIRDROP` pueden tratarse como RCM, ganancia patrimonial o con base de coste cero (descuento), sin alterar el modelo de datos. Sustituye al antiguo `INCOME_CATEGORY_MAP`.
 
 ## 8. Cálculo de impuestos (`services/tax_calculator.py`)
 
@@ -320,7 +324,7 @@ class CanonicalTransaction:
 
 | Conector | Fichero | Mapping | Estado |
 |----------|---------|---------|--------|
-| `CRYPTO_COM_BANK` | `crypto_com.py` | `crypto_com.yaml` | Implementado para App/exchange; soporta 13+ tipos incluyendo cashback, reversión, transfers internos/P2P. **PROVISIONAL**; ajustar con export real. |
+| `CRYPTO_COM_BANK` | `crypto_com_bank.py` | `crypto_com_bank.yaml` | Implementado para App/tarjeta; soporta 13+ tipos incluyendo cashback, reversión, transfers internos/P2P. Afinado con export real. |
 | `CRYPTO_EXCHANGE` | `crypto_exchange.py` | `crypto_exchange.yaml` | Implementado para el journal de Crypto.com Exchange (`OEX_TRANSACTION_*`). Agrupa filas por `Order ID`, colapsa múltiples fills en una sola operación, convierte `USD_Stable_Coin` a EUR vía Frankfurter y emite `BUY`/`SELL` canónicos. **PROVISIONAL**. |
 | `REVOLUT` | `revolut.py` | `revolut.yaml` | Implementado para el informe de ganancias/pérdidas de Revolut (`Date acquired`, `Date sold`, `Symbol`, `Quantity`, `Cost basis`, `Gross proceeds`, `Fees`, `Currency`). Cada fila genera un `BUY` + un `SELL` ordenados cronológicamente. Convierte USD a EUR usando el tipo de cambio oficial del BCE (Frankfurter) para cada fecha; usa `fallback_usd_to_eur_rate` si la API no responde. |
 | `REVOLUT_EXCHANGE` | `revolut_exchange.py` | `revolut_exchange.yaml` | Esqueleto implementado. **PROVISIONAL**. |
@@ -611,3 +615,46 @@ Un depósito solo crea lote FIFO si se proporciona `eur_value`. Esto permite dis
 - `docs/ESTADO.md` — handoff y tarea pendiente.
 - `docs/PLAN-FASE-1.md` — plan de arquitectura original.
 - `docs/SUGGESTIONS.md` — decisiones fiscales abiertas tras integrar Crypto.com CSV real.
+- `docs/ANALISIS.md` — errores, riesgos y mejoras detectados (revisión 2026-06-29).
+
+## 19. Cambios recientes (Fase 2 — junio 2026)
+
+Funcionalidades añadidas tras la versión 0.1.0 del documento, ya integradas y commiteadas:
+
+- **Reclasificación manual de transacciones**: `PATCH /api/transactions/{id}` permite cambiar
+  `type`, `cost_basis_eur`, `is_internal_transfer` y `notes`; recalcula FIFO e impuestos al guardar
+  (`api/transactions.py`, `frontend/src/components/TransactionEditDialog.tsx`).
+- **Coste de adquisición explícito** (`Transaction.cost_basis_eur`) y **transferencias a terceros**
+  (`Transaction.is_internal_transfer`): un `TRANSFER` no interno se trata como enajenación.
+- **Preferencias fiscales de recompensas por contribuyente** (`taxpayer_reward_preferences`,
+  `reward_preference_service.py`, `GET/PUT /api/taxpayers/{id}/reward-preferences`).
+- **Bandeja de avisos** (`ReviewItem`, `review_service.py`, `api/reviews.py`): P2P, reversiones,
+  saldo insuficiente y precios ausentes; acciones de resolución, ignorar y **revertir**
+  (`POST /api/reviews/{id}/revert`); auto-resolución de reversiones emparejadas.
+- **Preview de importación**: `POST /api/imports/preview` parsea sin persistir (10 filas + errores).
+- **Exportación PDF/CSV**: `GET /api/exports/{summary|transactions|model721}?format=csv|pdf`
+  (`export_service.py`, `frontend/src/components/ExportButtons.tsx`). El PDF usa `fpdf2` con fuente
+  DejaVu (fallback a fuente core). El CSV no depende de `fpdf2`.
+- **Precios CoinGecko**: `POST /api/prices/fetch-historical` (cierres 31/12 para todos los años con
+  actividad) y `POST /api/prices/fetch-current` (precio actual). Conversión USD/EUR vía BCE
+  (`exchange_rate_provider.py`) para los conectores en USD.
+- **Conector `CRYPTO_EXCHANGE`** (journal de Crypto.com Exchange): agrupa por `Order ID`, colapsa
+  múltiples *fills*, convierte `USD_Stable_Coin` a EUR y emite `BUY`/`SELL`.
+
+### 19.1 Endpoints añadidos (no listados en §11)
+
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| POST | `/imports/preview` | Parsea un fichero sin persistir; devuelve 10 filas y errores. |
+| PATCH | `/transactions/{id}` | Reclasificar tipo / editar coste base, flag interno y notas. |
+| GET | `/exports/{summary\|transactions\|model721}` | Descarga CSV o PDF (`?format=csv\|pdf&year=&taxpayer_ids=`). |
+| POST | `/prices/fetch-current` | Precios EUR actuales de CoinGecko para los activos del contribuyente. |
+| POST | `/reviews/{id}/revert` | Devuelve un aviso resuelto/ignorado a `PENDING`. |
+
+### 19.2 Notas de despliegue
+
+- El backend en Docker se publica en el host en **`http://localhost:8008`** (`docker-compose.yml`
+  mapea `8008:8000`), no en `8000`. Algunos textos antiguos (README, comentario del compose) aún
+  dicen `8000`; el puerto real del host es `8008`.
+- Instalar la dependencia `fpdf2` (incluida en `requirements.txt`) es obligatorio para el export PDF
+  y para que pase el test `test_export_transactions_pdf`.
